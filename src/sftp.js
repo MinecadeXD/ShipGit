@@ -4,7 +4,6 @@ import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { pipeline } from "node:stream/promises";
 
 export async function withSftp(config, callback) {
   const client = new SftpClient("shipgit");
@@ -18,20 +17,22 @@ export async function testConnection(config) {
   return withSftp(config, async (client) => {
     const remote = config.remoteDir || ".";
     const stat = await client.stat(remote);
-    if (!stat.isDirectory) throw new Error("Remote destination exists but is not a directory.");
+    if (!isDirectoryStat(stat)) throw new Error("Remote destination exists but is not a directory.");
     return { connected: true, remote };
   });
 }
 
 export async function hashFile(filePath) {
   const hash = createHash("sha256");
-  await pipeline(createReadStream(filePath), async function* (source) {
-    for await (const chunk of source) {
-      hash.update(chunk);
-      yield chunk;
-    }
-  });
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
   return hash.digest("hex");
+}
+
+function isDirectoryStat(stat) {
+  return typeof stat.isDirectory === "function" ? stat.isDirectory() : Boolean(stat.isDirectory);
+}
+function isFileStat(stat) {
+  return typeof stat.isFile === "function" ? stat.isFile() : Boolean(stat.isFile);
 }
 
 function isMissingRemote(error) {
@@ -56,7 +57,7 @@ export async function deployFiles(config, files, { dryRun = false } = {}) {
   if (dryRun) return files.map((file) => ({ path: file.relative, action: "would-check-and-upload-if-changed" }));
   return withSftp(config, async (client) => {
     const root = config.remoteDir || ".";
-    if (!(await client.stat(root)).isDirectory) throw new Error("Remote destination is not a directory.");
+    if (!isDirectoryStat(await client.stat(root))) throw new Error("Remote destination is not a directory.");
     const results = [];
     for (const file of files) {
       const remote = path.posix.join(root.replace(/\\/g, "/"), file.relative.split(path.sep).join("/"));
@@ -73,7 +74,7 @@ export async function deployFiles(config, files, { dryRun = false } = {}) {
         results.push({ path: file.relative, action: "uploaded-new" });
         continue;
       }
-      if (!remoteStat.isFile) throw new Error("Remote path exists but is not a regular file: " + remote);
+      if (!isFileStat(remoteStat)) throw new Error("Remote path exists but is not a regular file: " + remote);
       if (Number(remoteStat.size) !== file.size) {
         await client.mkdir(path.posix.dirname(remote), true);
         await client.put(file.absolute, remote);
