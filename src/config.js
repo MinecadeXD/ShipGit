@@ -13,6 +13,12 @@ export async function configureApp(name, prompts) {
     let choice = await prompts.choose("Configure " + name, choices);
     if (choice === choices.length - 1) return;
     if (isClone && choice === 1) {
+      let repoUrl;
+      try { repoUrl = new URL(config.repoUrl); } catch { console.log("Set a valid HTTPS GitHub repository URL before adding a token."); continue; }
+      if (repoUrl.protocol !== "https:" || repoUrl.hostname.toLowerCase() !== "github.com" || repoUrl.username || repoUrl.password) {
+        console.log("GitHub tokens require a clean https://github.com/OWNER/REPO.git URL.");
+        continue;
+      }
       const token = await prompts.askSecret("GitHub Personal Access Token", { required: true });
       if (!(await prompts.confirm("Save this token for future private-repository updates?", true))) {
         console.log("Token discarded; existing credentials were left unchanged.");
