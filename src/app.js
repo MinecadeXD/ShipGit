@@ -2,7 +2,7 @@ import { managerPrompt } from "./commands/manager.js";
 import { Prompts } from "./prompts.js";
 import { listApps } from "./utils.js";
 import { deployApp } from "./commands/subapp.js";
-import { error } from "./terminal.js";
+import { error, info, muted } from "./terminal.js";
 
 export async function startApp(args = process.argv.slice(2)) {
   if (!args.length) {
@@ -17,9 +17,21 @@ export async function startApp(args = process.argv.slice(2)) {
     config.deployAlias && config.deployAlias.toLowerCase() === alias.toLowerCase()
   );
   if (!app) throw new Error("No app has the deploy alias '" + alias + "'. Configure one in ShipGit → Manage Apps → Config.");
+
   const prompts = new Prompts();
   try {
-    await deployApp(app.name, prompts, mode === "dry-run");
+    try {
+      await deployApp(app.name, prompts, mode === "dry-run");
+    } catch (err) {
+      console.error(error((mode === "dry-run" ? "Dry run" : "Deployment") + " failed: " + (err?.message || String(err))));
+    }
+
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+      console.log("\n" + info("Result displayed above."));
+      await prompts.ask("Press Enter to return to your terminal");
+    } else {
+      console.log(muted("Non-interactive terminal detected; exiting without a pause."));
+    }
   } finally {
     prompts.close();
   }

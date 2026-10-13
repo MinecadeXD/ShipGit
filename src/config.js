@@ -139,7 +139,7 @@ export async function configureApp(name, prompts) {
       if (!currentlyEnabled) {
         const remote = String(config.sftp.remoteDir || "").replace(/\\/g, "/");
         if (!remote.startsWith("/") || remote === "/" || remote.split("/").includes("..")) {
-          console.log(error("Remote deletion requires a dedicated absolute destination such as /public_html; '.' and '/' are unsafe."));
+          console.log(error("Remote deletion is blocked for '/' (the account root) and '.' (an ambiguous relative path). Choose a dedicated absolute directory, e.g. /public_html/my-site, and verify it contains only this app's files."));
           continue;
         }
         console.log(warning("When enabled, files inside the configured remote directory that are not present locally may be deleted."));

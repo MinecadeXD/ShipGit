@@ -57,10 +57,11 @@ export class Prompts {
     let value;
     try {
       value = (await this.question("")).trim();
-      this.clearAcceptedInput();
     } finally {
       this.rl._writeToOutput = original;
+      stdout.write("\n");
     }
+    this.clearAcceptedInput();
     if (required && !value) {
       console.log(error("A value is required."));
       return this.askSecret(label, { required });
