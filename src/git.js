@@ -17,8 +17,11 @@ export function run(command, args, options = {}) {
 async function runGit(args, tokenPath) {
   if (!tokenPath) return run("git", args);
   let remoteUrl;
-  if (args[0] === "clone") remoteUrl = args[args.length - 2];
-  else if (args[0] === "-C" && args[1]) remoteUrl = await run("git", ["-C", args[1], "remote", "get-url", "origin"]);
+  if (args[0] === "clone" || args[0] === "ls-remote") {
+    remoteUrl = args.find((arg) => /^(https:\/\/|ssh:\/\/|git@)/i.test(arg));
+  } else if (args[0] === "-C" && args[1]) {
+    remoteUrl = await run("git", ["-C", args[1], "remote", "get-url", "origin"]);
+  }
   if (!remoteUrl) throw new Error("Cannot verify the GitHub remote before using the stored token.");
   let parsedUrl;
   try { parsedUrl = new URL(remoteUrl); } catch { throw new Error("Stored GitHub tokens can only be used with an HTTPS GitHub remote."); }
@@ -64,4 +67,16 @@ export async function updateRepository(repoPath, branch, githubTokenPath) {
   await run("git", ["-C", repoPath, "checkout", branch]);
   await runGit(["-C", repoPath, "pull", "--ff-only", "origin", branch], githubTokenPath);
   return run("git", ["-C", repoPath, "rev-parse", "--short", "HEAD"]);
+}
+
+export async function listRemoteBranches(repoUrl, githubTokenPath) {
+  const output = await runGit(["ls-remote", "--heads", repoUrl], githubTokenPath);
+  return [...new Set(output.split("\n")
+    .map((line) => line.match(/\s+refs\/heads\/(.+)$/)?.[1])
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+export async function listLocalBranches(repoPath) {
+  const output = await run("git", ["-C", repoPath, "branch", "--format=%(refname:short)"]);
+  return output.split("\n").map((branch) => branch.trim()).filter(Boolean).sort((a, b) => a.localeCompare(b));
 }
