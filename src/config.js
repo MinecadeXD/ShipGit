@@ -19,11 +19,11 @@ async function chooseBranch(config, prompts) {
       if (!branches.length) throw new Error("No branches were found.");
       const choice = await prompts.choose("Select deployment branch", [...branches, "Enter a branch manually", "Refresh branch list"]);
       if (choice < branches.length) return branches[choice];
-      if (choice === branches.length) return prompts.ask("Branch name", { defaultValue: config.branch, required: true, validate: async (v) => /^\S+$/.test(v) || "Enter one branch name without spaces." });
+      if (choice === branches.length) return prompts.ask("Branch name", { defaultValue: config.branch, required: true, validate: validBranch });
     } catch (err) {
       console.log(warning("Automatic branch discovery failed: " + err.message));
       const next = await prompts.choose("How would you like to continue?", ["Enter branch manually", "Retry branch discovery", "Cancel branch change"]);
-      if (next === 0) return prompts.ask("Branch name", { defaultValue: config.branch, required: true, validate: async (v) => /^\S+$/.test(v) || "Enter one branch name without spaces." });
+      if (next === 0) return prompts.ask("Branch name", { defaultValue: config.branch, required: true, validate: validBranch });
       if (next === 2) return null;
     }
   }
