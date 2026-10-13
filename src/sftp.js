@@ -71,7 +71,7 @@ async function listRemoteFiles(client, root) {
   async function walk(current) {
     const entries = await client.list(current);
     for (const entry of entries) {
-      if (!entry.name || entry.name === "." || entry.name === "..") continue;
+      if (!entry.name || entry.name === "." || entry.name === ".." || entry.name.includes("/") || entry.name.includes("\\\\")) continue;
       const remotePath = path.posix.join(current, entry.name);
       if (entry.type === "l") continue; // Never follow or delete symlinks.
       if (entry.type === "d") await walk(remotePath);
@@ -86,6 +86,7 @@ export async function deployFiles(config, files, { dryRun = false, deletion = { 
   const root = String(config.remoteDir || ".").replace(/\\/g, "/");
   const deletionEnabled = Boolean(deletion?.enabled);
   if (deletionEnabled) assertSafeDeletionRoot(root);
+  if (deletionEnabled && !dryRun && files.length === 0) throw new Error("Refusing remote deletion because the local deployment contains no files.");
   return withSftp(config, async (client) => {
     if (!isDirectoryStat(await client.stat(root))) throw new Error("Remote destination is not a directory.");
     const results = [];
