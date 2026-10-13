@@ -2,12 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { readConfig, saveConfig, appDir, validDeployAlias, listApps } from "./utils.js";
 import { testConnection } from "./sftp.js";
-import { listRemoteBranches, listLocalBranches } from "./git.js";
+import { listRemoteBranches, listLocalBranches, run } from "./git.js";
 import { success, error, info, muted, warning, section } from "./terminal.js";
 
 const expand = (value) => path.resolve(String(value).replace(/^~(?=$|\/)/, process.env.HOME || ""));
 const validRemotePath = (value) => value === "." || (value.startsWith("/") && !value.split("/").includes(".."));
 const validPort = (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 65535 || "Port must be a number from 1 to 65535.";
+const validBranch = async (value) => { try { await run("git", ["check-ref-format", "--branch", value]); return true; } catch { return "Enter a valid Git branch name."; } };
 
 async function chooseBranch(config, prompts) {
   while (true) {
@@ -71,8 +72,9 @@ export async function configureApp(name, prompts) {
     }
 
     if (action === "Repository and branch") {
+      const candidate = { ...config };
       if (config.sourceType === "clone") {
-        const nextUrl = await prompts.ask("Repository URL", {
+        candidate.repoUrl = await prompts.ask("Repository URL", {
           defaultValue: config.repoUrl, required: true,
           validate: (v) => {
             try {
@@ -81,20 +83,20 @@ export async function configureApp(name, prompts) {
             } catch { return /^git@[a-zA-Z0-9.-]+:[a-zA-Z0-9._/-]+(?:\.git)?$/.test(v) || "Enter a valid repository URL."; }
           }
         });
-        config.repoUrl = nextUrl;
       } else {
-        const nextPath = await prompts.ask("Local repository path", { defaultValue: config.repoPath, required: true });
-        config.repoPath = expand(nextPath);
+        candidate.repoPath = expand(await prompts.ask("Local repository path", { defaultValue: config.repoPath, required: true }));
       }
-      const branch = await chooseBranch(config, prompts);
+      const branch = await chooseBranch(candidate, prompts);
       if (branch === null) continue;
+      config.repoUrl = candidate.repoUrl;
+      config.repoPath = candidate.repoPath;
       config.branch = branch;
     } else if (action === "SFTP connection") {
       const candidate = { ...config.sftp };
       candidate.host = await prompts.ask("SFTP host", { defaultValue: candidate.host, required: true, validate: (v) => /^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/.test(v) || "Enter a hostname or IP address." });
       candidate.port = Number(await prompts.ask("SFTP port", { defaultValue: String(candidate.port || 22), required: true, validate: validPort }));
       candidate.username = await prompts.ask("SFTP username", { defaultValue: candidate.username, required: true });
-      candidate.remoteDir = await prompts.ask("Remote destination", { defaultValue: candidate.remoteDir, required: true, validate: (v) => validRemotePath(v) || "Use an absolute remote path (or . when deletion is disabled)." });
+      candidate.remoteDir = await prompts.ask("Remote destination", { defaultValue: candidate.remoteDir, required: true, validate: (v) => (validRemotePath(v) && (!config.deletion?.enabled || (v.startsWith("/") && v !== "/" && !v.split("/").includes("..")))) || "Use a dedicated absolute remote path when remote deletion is enabled." });
       try {
         await testConnection(candidate);
         if (!(await prompts.confirm("Connection verified. Save these SFTP settings?", true))) {
