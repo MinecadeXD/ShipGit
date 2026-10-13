@@ -40,7 +40,7 @@ npm install
 npm link
 ```
 
-Run `shipgit` or `sg`.
+Run `shipgit` or `sg` to open the guided main menu. Choose **Manage existing apps** to use the persistent command prompt.
 
 ## Commands
 
@@ -52,7 +52,7 @@ Manager prompt:
 | `open <name>` | Enter a sub-app |
 | `list` | List sub-apps |
 | `delete <name>` / `remove <name>` | Delete a sub-app and its ShipGit-managed clone/token |
-| `help` / `exit` | Help / quit |
+| `menu` | Return to the guided main menu |\n| `help` / `exit` | Help / quit |
 
 Sub-app prompt:
 
@@ -64,7 +64,7 @@ Sub-app prompt:
 | `status` | Display non-secret settings and test SFTP |
 | `back` / `help` | Return / show help |
 
-Commands are scoped to the active prompt. For example, `deploy` works only inside an opened sub-app. This restriction applies only within ShipGit, not to the surrounding terminal.
+After setup, ShipGit offers **Deploy now**, **Open app command prompt**, or **Return to main menu**. Commands are scoped to the active prompt. For example, `deploy` works only inside an opened sub-app. This restriction applies only within ShipGit, not to the surrounding terminal.
 
 ## Private GitHub repositories
 
