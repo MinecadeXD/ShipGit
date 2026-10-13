@@ -11,7 +11,7 @@ export class Prompts {
     const promptTone = label.endsWith(">") ? (label === "shipgit>" ? "magenta" : "blue") : "cyan";
     const raw = (await this.rl.question(color(label, promptTone) + suffix + ": ")).trim();
     if (stdin.isTTY && stdout.isTTY) {
-      stdout.write("\\x1b[1A\\x1b[2K\\r");
+      stdout.write("\x1b[1A\x1b[2K\r");
       console.log(success(label + " accepted"));
     }
     const value = raw || defaultValue;
