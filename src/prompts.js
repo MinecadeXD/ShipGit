@@ -8,7 +8,12 @@ export class Prompts {
 
   async ask(label, { defaultValue = "", required = false, validate } = {}) {
     const suffix = defaultValue ? muted(" [" + defaultValue + "]") : "";
-    const value = ((await this.rl.question(color(label, "cyan") + suffix + ": ")).trim() || defaultValue);
+    const raw = (await this.rl.question(color(label, "cyan") + suffix + ": ")).trim();
+    if (stdin.isTTY && stdout.isTTY) {
+      stdout.write("\\x1b[1A\\x1b[2K\\r");
+      console.log(success(label + " accepted"));
+    }
+    const value = raw || defaultValue;
     if (required && !value) {
       console.log(error("A value is required."));
       return this.ask(label, { defaultValue, required, validate });
