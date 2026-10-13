@@ -1,2 +1,3 @@
 # ShipGit
-A lightweight, cross-platform CLI for managing multiple GitHub-to-SFTP deployments from Termux and Linux, using SSH key authentication and an interactive terminal interface.
+
+An interactive Git-to-SFTP deployment CLI for Termux and Linux.
