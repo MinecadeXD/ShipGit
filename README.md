@@ -9,27 +9,29 @@
   </p>
 </div>
 
-ShipGit keeps deployment settings isolated by project. Create one sub-app per repository and deploy its files to an SFTP destination from a persistent interactive prompt.
+ShipGit stores separate deployment settings for each app and publishes repository files to an SFTP destination. It is designed for Termux and Linux and does not require shell access on the hosting server.
 
-> **Early development:** test against a non-production destination first. Same-sized remote files are downloaded to a temporary file and compared using SHA-256. This is more reliable than size-only checks, but may add time and bandwidth for large files.
+> **Early development:** test with a dedicated, non-production remote directory first. Same-sized remote files are downloaded to a temporary file and compared with SHA-256, which is reliable but may use additional bandwidth.
 
 ## Features
 
-- Both `shipgit` and `sg` open the same persistent prompt.
-- Separate settings per sub-app under `~/.shipgit/apps/`.
-- Clone a public Git repository, clone a private GitHub repository with a Personal Access Token (PAT), or use an existing local Git checkout.
-- Configure branch, SFTP host/port/user/destination, exclusions and SSH key.
-- Select an existing key, paste private key text, or generate an Ed25519 key.
-- Guided setup with color-coded status, input validation, and arrow-key menus where the terminal supports them (numbered fallback otherwise).\n- Read-only SFTP connection test during setup; setup never deploys automatically.\n- Set `NO_COLOR=1` or pass `--no-color` to disable ANSI colors.
-- `deploy --dry-run` preview.
-- Remote deletion is disabled. Deleting a sub-app never deletes remote hosting files or an external local repository.
+- Interactive manager and per-app command prompt with high-contrast terminal colors and arrow-key menus where supported.
+- Separate configuration for each app under `~/.shipgit/apps/`.
+- Clone public or private GitHub repositories, or use an existing local Git checkout.
+- Fetch branch names automatically and select one from a menu.
+- Configure SFTP destination, SSH key, exclusions, and connection checks.
+- Choose an existing private key, paste key text securely, or generate an Ed25519 key quietly.
+- Separate `deploy` and `dry-run` commands.
+- Optional remote deletion, disabled by default and limited to a dedicated absolute remote directory.
+- Per-app deployment aliases that work from any directory.
+- Private GitHub tokens and app configuration are stored separately with restricted file permissions.
 
 ## Requirements
 
 - Node.js 20 or newer
 - Git on `PATH`
-- `ssh-keygen` only if generating a key
-- An SFTP account and a key authorized by your hosting provider
+- `ssh-keygen` only if generating an SSH key
+- An SFTP account and a private key authorized by your hosting provider
 
 ## Install from source
 
@@ -40,51 +42,66 @@ npm install
 npm link
 ```
 
-Run `shipgit` or `sg` to open the guided main menu. Choose **Manage existing apps** to use the persistent command prompt.
+Run `shipgit` or `sg` to open the manager. Choose **Manage existing apps** to open, configure, or delete an app. Interactive menus use arrow keys and Enter in compatible terminals; numbered choices are used as a fallback. Set `NO_COLOR=1` to disable ANSI colors.
 
-## Commands
+## App prompt commands
 
-Manager prompt:
-
-| Command | Action |
-| --- | --- |
-| `setup` | Create a sub-app and test SFTP access |
-| `open <name>` | Enter a sub-app |
-| `list` | List sub-apps |
-| `delete <name>` / `remove <name>` | Delete a sub-app and its ShipGit-managed clone/token |
-| `menu` | Return to the guided main menu |\n| `help` / `exit` | Help / quit |
-
-Sub-app prompt:
+After opening an app, use its persistent prompt:
 
 | Command | Action |
 | --- | --- |
-| `deploy` | Confirm and deploy |
-| `deploy --dry-run` | Preview without uploading |
-| `config` | Edit settings or test connection |
-| `status` | Display non-secret settings and test SFTP |
-| `back` / `help` | Return / show help |
+| `deploy` | Confirm and deploy files |
+| `dry-run` | Compare local and remote files and preview uploads/deletions without changing remote files |
+| `config` | Change settings, set a deploy alias, or toggle remote deletion |
+| `status` | Show non-secret settings and test SFTP access |
+| `help` | Show available commands |
+| `back` | Return to app management |
 
-After setup, ShipGit offers **Deploy now**, **Open app command prompt**, or **Return to main menu**. Commands are scoped to the active prompt. For example, `deploy` works only inside an opened sub-app. This restriction applies only within ShipGit, not to the surrounding terminal.
+`deploy --dry-run` is not used; dry-run is a separate command. A dry-run may fetch/update the local checkout of a cloned repository before comparing files, but it does not upload or delete remote SFTP files.
+
+## Deploy from any directory with an alias
+
+Configure an alias through **Manage Apps → Configure an app → Deploy alias**. The alias is intentionally not part of the setup sequence.
+
+For example, if the alias is `website`:
+
+```sh
+sg website
+sg website dry-run
+```
+
+- `sg website` runs a real deployment after confirmation.
+- `sg website dry-run` previews changes without uploading or deleting remote files.
+- The alias is stored in that app's configuration and resolves to that app regardless of the current working directory.
+- Alias names may contain letters, numbers, dots, underscores, and hyphens. Built-in ShipGit commands are reserved. The `sg` executable must be available on your `PATH`.
+
+## Branch selection
+
+During setup and configuration, ShipGit attempts to fetch branch names from the selected remote repository or list branches from a local Git checkout. Choose the desired branch from the menu. If discovery fails, retry or enter the branch name manually. Private GitHub branch discovery uses the configured token.
 
 ## Private GitHub repositories
 
-When choosing **Clone a remote Git repository**, ShipGit asks whether the repository is public or private. The private option accepts a GitHub Personal Access Token (PAT) through a masked prompt. This choice is not shown when using an existing local repository.
+When cloning a remote repository, choose the private GitHub option to enter a Personal Access Token through a masked prompt. This choice is not shown when using an existing local repository.
 
-- Use an HTTPS URL such as `https://github.com/OWNER/REPO.git` for private token authentication.
-- Prefer a fine-grained token limited to the selected repository with **Contents: Read-only** permission.
-- The token is stored separately in the sub-app directory with restrictive file permissions, not in the Git remote URL or the app's JSON config.
-- Git receives the token temporarily through an askpass helper for clone/fetch/pull. ShipGit does not print the token.
-- Use `open <name>` then `config` to set/update the token later. Replacing a token does not change the repository URL.
+- Use a clean HTTPS URL such as `https://github.com/OWNER/REPO.git`.
+- Prefer a fine-grained token scoped to the repository with **Contents: Read-only** permission.
+- The token is stored separately from the repository URL and JSON config with restrictive file permissions.
+- ShipGit passes the token temporarily to Git through an askpass helper and does not print it.
+- Use **Config → Set/update GitHub token** to replace it later.
 
-## SSH keys and safety
+## Remote deletion safety
 
-Private keys are stored separately from app configuration with restrictive file permissions. Pasted private-key lines and GitHub tokens are entered through masked prompts. Newly generated Ed25519 keys are created quietly in the background and are not overwritten if the destination already exists. Generated public keys must be registered with your host yourself—ShipGit cannot authorize them on your behalf. Generated keys currently have no passphrase, so keep the private-key file protected.
+Remote deletion is **OFF by default**. Enable it only through the app's **Config** menu. ShipGit requires a dedicated, normalized absolute remote directory (for example `/public_html`); `/` and `.` are rejected for deletion. When enabled, extra remote files within that configured directory may be deleted after deployment. ShipGit asks for an additional confirmation before a real deployment with deletion enabled.
 
-- Setup tests authentication and reads the remote destination; it does not upload.
-- Remote deletion is not implemented. The manager `delete <name>` command (also available as `remove <name>`) removes that sub-app's settings, stored token, and ShipGit-managed clone; it never deletes remote hosting files or an external local repository.
-- Dry-run previews files, but a cloned repository may still fetch/update its local checkout.
-- Never put private keys or credentials in public issues or repositories.
-- File comparison uses size as a quick filter and SHA-256 for same-sized files. Remote comparison failures stop deployment instead of silently skipping the file.
+Dry-run lists remote files that would be deleted without deleting them. Excluded paths are preserved. Remote deletion does not remove the configured remote directory itself, and ShipGit does not follow remote symbolic links.
+
+Deleting an app removes its ShipGit settings and any ShipGit-managed clone/token. It does not delete files on the hosting server or an external local repository.
+
+## SSH keys and privacy
+
+Private-key paths and GitHub tokens are never printed as secret contents. Pasted private-key lines and tokens use masked input. Newly generated Ed25519 keys are created quietly, are not overwritten if the destination exists, and currently have no passphrase. Register the generated public key with your hosting provider yourself before deploying.
+
+Use `status` to inspect the repository, branch, SFTP destination, SSH key path, exclusions, deletion state, and deploy alias. Tokens and private-key contents are never displayed.
 
 ## Development
 
