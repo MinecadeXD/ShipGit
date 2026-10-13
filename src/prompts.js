@@ -8,7 +8,8 @@ export class Prompts {
 
   async ask(label, { defaultValue = "", required = false, validate } = {}) {
     const suffix = defaultValue ? muted(" [" + defaultValue + "]") : "";
-    const raw = (await this.rl.question(color(label, "cyan") + suffix + ": ")).trim();
+    const promptTone = label.endsWith(">") ? (label === "shipgit>" ? "magenta" : "blue") : "cyan";
+    const raw = (await this.rl.question(color(label, promptTone) + suffix + ": ")).trim();
     if (stdin.isTTY && stdout.isTTY) {
       stdout.write("\\x1b[1A\\x1b[2K\\r");
       console.log(success(label + " accepted"));
