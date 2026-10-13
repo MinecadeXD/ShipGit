@@ -1,28 +1,61 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { readConfig, saveConfig, redactConfig, appDir } from "./utils.js";
+import { readConfig, saveConfig, appDir, validDeployAlias } from "./utils.js";
 import { testConnection } from "./sftp.js";
+import { listRemoteBranches, listLocalBranches } from "./git.js";
 import { success, error, info, muted, warning, section } from "./terminal.js";
+
+const expand = (value) => path.resolve(String(value).replace(/^~(?=$|\/)/, process.env.HOME || ""));
+const validRemotePath = (value) => value === "." || (value.startsWith("/") && !value.split("/").includes(".."));
+const validPort = (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 65535 || "Port must be a number from 1 to 65535.";
+
+async function chooseBranch(config, prompts) {
+  while (true) {
+    try {
+      const branches = config.sourceType === "clone"
+        ? await listRemoteBranches(config.repoUrl, config.githubTokenPath)
+        : await listLocalBranches(config.repoPath);
+      if (!branches.length) throw new Error("No branches were found.");
+      const choice = await prompts.choose("Select deployment branch", [...branches, "Enter a branch manually", "Refresh branch list"]);
+      if (choice < branches.length) return branches[choice];
+      if (choice === branches.length) return prompts.ask("Branch name", { defaultValue: config.branch, required: true, validate: async (v) => /^\S+$/.test(v) || "Enter one branch name without spaces." });
+    } catch (err) {
+      console.log(warning("Automatic branch discovery failed: " + err.message));
+      const next = await prompts.choose("How would you like to continue?", ["Enter branch manually", "Retry branch discovery", "Cancel branch change"]);
+      if (next === 0) return prompts.ask("Branch name", { defaultValue: config.branch, required: true, validate: async (v) => /^\S+$/.test(v) || "Enter one branch name without spaces." });
+      if (next === 2) return null;
+    }
+  }
+}
 
 export async function configureApp(name, prompts) {
   const config = await readConfig(name);
   while (true) {
-    const isClone = config.sourceType === "clone";
-    const choices = isClone
-      ? ["Repository path / URL / branch", "Set/update GitHub token", "SFTP connection", "SSH private key path", "Exclude paths", "Test SFTP connection", "View non-secret config", "Back"]
-      : ["Repository path / URL / branch", "SFTP connection", "SSH private key path", "Exclude paths", "Test SFTP connection", "View non-secret config", "Back"];
-    let choice = await prompts.choose("Configure " + name, choices);
-    if (choice === choices.length - 1) return;
-    if (isClone && choice === 1) {
-      let repoUrl;
-      try { repoUrl = new URL(config.repoUrl); } catch { console.log(error("Set a valid HTTPS GitHub repository URL before adding a token.")); continue; }
-      if (repoUrl.protocol !== "https:" || repoUrl.hostname.toLowerCase() !== "github.com" || repoUrl.username || repoUrl.password) {
+    const choices = [
+      "Repository and branch",
+      ...(config.sourceType === "clone" ? ["Set/update GitHub token"] : []),
+      "SFTP connection",
+      "SSH private key path",
+      "Exclude paths",
+      "Remote deletion: " + (config.deletion?.enabled ? "ON" : "OFF"),
+      "Deploy alias",
+      "Test SFTP connection",
+      "Back"
+    ];
+    const choice = await prompts.choose("Config · " + name, choices);
+    const action = choices[choice];
+    if (action === "Back") return;
+
+    if (action === "Set/update GitHub token") {
+      let parsed;
+      try { parsed = new URL(config.repoUrl); } catch {}
+      if (!parsed || parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "github.com" || parsed.username || parsed.password) {
         console.log(error("GitHub tokens require a clean https://github.com/OWNER/REPO.git URL."));
         continue;
       }
       const token = await prompts.askSecret("GitHub Personal Access Token", { required: true });
-      if (!(await prompts.confirm("Save this token for future private-repository updates?", true))) {
-        console.log(muted("Token discarded; existing credentials were left unchanged."));
+      if (!(await prompts.confirm("Replace the stored GitHub token?", true))) {
+        console.log(muted("Token change cancelled."));
         continue;
       }
       const tokenPath = config.githubTokenPath || path.join(appDir(name), "github-token");
@@ -33,35 +66,135 @@ export async function configureApp(name, prompts) {
       await fs.chmod(tokenPath, 0o600).catch(() => {});
       config.githubTokenPath = tokenPath;
       await saveConfig(name, config);
-      console.log(success("GitHub token saved privately; it will not appear in the repository URL or config output."));
+      console.log(success("GitHub token saved securely."));
       continue;
     }
-    if (isClone && choice > 1) choice -= 1;
-    if (choice === 0) {
-      config.branch = await prompts.ask("Branch", { defaultValue: config.branch, required: true });
+
+    if (action === "Repository and branch") {
       if (config.sourceType === "clone") {
-        const nextUrl = await prompts.ask("Repository URL", { defaultValue: config.repoUrl, required: true });
-        if (/^https?:\/\//i.test(nextUrl)) {
-          const parsed = new URL(nextUrl);
-          if (parsed.username || parsed.password) { console.log(error("Do not put credentials in the repository URL.")); continue; }
-        }
+        const nextUrl = await prompts.ask("Repository URL", {
+          defaultValue: config.repoUrl, required: true,
+          validate: (v) => {
+            try {
+              const u = new URL(v);
+              return ["https:", "ssh:"].includes(u.protocol) && !u.username && !u.password || "Enter a valid repository URL without embedded credentials.";
+            } catch { return /^git@[a-zA-Z0-9.-]+:[a-zA-Z0-9._/-]+(?:\.git)?$/.test(v) || "Enter a valid repository URL."; }
+          }
+        });
         config.repoUrl = nextUrl;
-      } else config.repoPath = await prompts.ask("Local repository path", { defaultValue: config.repoPath, required: true });
-    } else if (choice === 1) {
-      config.sftp.host = await prompts.ask("SFTP host", { defaultValue: config.sftp.host, required: true });
-      const port = Number(await prompts.ask("SFTP port", { defaultValue: String(config.sftp.port), required: true }));
-      if (!Number.isInteger(port) || port < 1 || port > 65535) { console.log(error("Invalid port; change discarded.")); continue; }
-      config.sftp.port = port;
-      config.sftp.username = await prompts.ask("Username", { defaultValue: config.sftp.username, required: true });
-      config.sftp.remoteDir = await prompts.ask("Remote destination", { defaultValue: config.sftp.remoteDir, required: true });
-    } else if (choice === 2) config.sftp.privateKeyPath = await prompts.ask("Private key path", { defaultValue: config.sftp.privateKeyPath, required: true });
-    else if (choice === 3) config.exclude = (await prompts.ask("Comma-separated excludes", { defaultValue: (config.exclude || []).join(",") })).split(",").map((x) => x.trim()).filter(Boolean);
-    else if (choice === 4) {
-      try { await testConnection(config.sftp); console.log(success("SFTP connection passed; no files changed.")); }
-      catch (e) { console.log(error("Connection failed: " + e.message)); }
+      } else {
+        const nextPath = await prompts.ask("Local repository path", { defaultValue: config.repoPath, required: true });
+        config.repoPath = expand(nextPath);
+      }
+      const branch = await chooseBranch(config, prompts);
+      if (branch === null) continue;
+      config.branch = branch;
+    } else if (action === "SFTP connection") {
+      const candidate = { ...config.sftp };
+      candidate.host = await prompts.ask("SFTP host", { defaultValue: candidate.host, required: true, validate: (v) => /^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/.test(v) || "Enter a hostname or IP address." });
+      candidate.port = Number(await prompts.ask("SFTP port", { defaultValue: String(candidate.port || 22), required: true, validate: validPort }));
+      candidate.username = await prompts.ask("SFTP username", { defaultValue: candidate.username, required: true });
+      candidate.remoteDir = await prompts.ask("Remote destination", { defaultValue: candidate.remoteDir, required: true, validate: (v) => validRemotePath(v) || "Use an absolute remote path (or . when deletion is disabled)." });
+      try {
+        await testConnection(candidate);
+        if (!(await prompts.confirm("Connection verified. Save these SFTP settings?", true))) {
+          console.log(muted("SFTP changes discarded."));
+          continue;
+        }
+        config.sftp = candidate;
+        await saveConfig(name, config);
+        console.log(success("SFTP settings saved and verified. No remote files changed."));
+      } catch (err) { console.log(error("SFTP test failed; settings were not changed: " + err.message)); }
       continue;
-    } else if (choice === 5) { section("Non-secret configuration"); console.log(JSON.stringify(redactConfig(config), null, 2)); continue; }
-    if (await prompts.confirm("Save changes?", true)) { await saveConfig(name, config); console.log(success("Changes saved; nothing was deployed.")); }
-    else console.log(warning("Changes discarded."));
+    } else if (action === "SSH private key path") {
+      const candidate = expand(await prompts.ask("Private key path", { defaultValue: config.sftp.privateKeyPath, required: true }));
+      try {
+        const stat = await fs.stat(candidate);
+        if (!stat.isFile()) throw new Error("That path is not a file.");
+        await fs.access(candidate);
+        const sftp = { ...config.sftp, privateKeyPath: candidate };
+        await testConnection(sftp);
+        if (!(await prompts.confirm("SSH key verified. Save this key path?", true))) continue;
+        config.sftp = sftp;
+        await saveConfig(name, config);
+        console.log(success("SSH key path saved and verified."));
+      } catch (err) { console.log(error("SSH key check failed; existing setting kept: " + err.message)); }
+      continue;
+    } else if (action === "Exclude paths") {
+      const value = await prompts.ask("Comma-separated relative paths to exclude", {
+        defaultValue: (config.exclude || []).join(", "),
+        validate: (v) => v.split(",").map((x) => x.trim()).filter(Boolean).every((x) => !path.isAbsolute(x) && !x.split(/[\\/]/).includes("..")) || "Exclusions must be relative and cannot contain '..'."
+      });
+      const exclude = value.split(",").map((x) => x.trim().replace(/\\/g, "/")).filter(Boolean);
+      if (await prompts.confirm("Save exclusions?", true)) {
+        config.exclude = exclude;
+        await saveConfig(name, config);
+        console.log(success("Exclusions saved."));
+      } else console.log(muted("Exclusion changes discarded."));
+      continue;
+    } else if (action.startsWith("Remote deletion:")) {
+      const currentlyEnabled = Boolean(config.deletion?.enabled);
+      if (!currentlyEnabled) {
+        const remote = String(config.sftp.remoteDir || "").replace(/\\/g, "/");
+        if (!remote.startsWith("/") || remote === "/" || remote.split("/").includes("..")) {
+          console.log(error("Remote deletion requires a dedicated absolute destination such as /public_html; '.' and '/' are unsafe."));
+          continue;
+        }
+        console.log(warning("When enabled, files inside the configured remote directory that are not present locally may be deleted."));
+        if (!(await prompts.confirm("Enable remote deletion for this app?", false))) {
+          console.log(muted("Remote deletion remains OFF."));
+          continue;
+        }
+        config.deletion = { ...(config.deletion || {}), enabled: true };
+      } else {
+        if (!(await prompts.confirm("Disable remote deletion and preserve extra remote files?", true))) continue;
+        config.deletion = { ...(config.deletion || {}), enabled: false };
+      }
+      await saveConfig(name, config);
+      console.log(success("Remote deletion is now " + (config.deletion.enabled ? "ON" : "OFF") + "."));
+      continue;
+    } else if (action === "Deploy alias") {
+      const current = config.deployAlias || "";
+      const next = await prompts.choose("Deploy alias", [
+        current ? "Change alias (" + current + ")" : "Set a new alias",
+        current ? "Remove alias" : "Leave unset",
+        "Back"
+      ]);
+      if (next === 2) continue;
+      if (next === 1) {
+        if (!current) continue;
+        if (await prompts.confirm("Remove deploy alias '" + current + "'?", false)) {
+          delete config.deployAlias;
+          await saveConfig(name, config);
+          console.log(success("Deploy alias removed."));
+        }
+        continue;
+      }
+      const alias = await prompts.ask("Alias (used as: sg <alias>)", {
+        defaultValue: current, required: true,
+        validate: (v) => validDeployAlias(v) || "Use 1–40 letters, numbers, dots, underscores or hyphens. Built-in commands are reserved."
+      });
+      const conflict = (await import("./utils.js")).listApps;
+      const apps = await conflict();
+      if (apps.some((app) => app.name !== name && app.config.deployAlias?.toLowerCase() === alias.toLowerCase())) {
+        console.log(error("That alias is already assigned to another app."));
+        continue;
+      }
+      if (await prompts.confirm("Save alias 'sg " + alias + "'?", true)) {
+        config.deployAlias = alias;
+        await saveConfig(name, config);
+        console.log(success("Deploy alias saved. Use 'sg " + alias + "' or 'sg " + alias + " dry-run' from any directory."));
+      }
+      continue;
+    } else if (action === "Test SFTP connection") {
+      try { await testConnection(config.sftp); console.log(success("SFTP connection passed; no files changed.")); }
+      catch (err) { console.log(error("SFTP connection failed: " + err.message)); }
+      continue;
+    }
+
+    if (await prompts.confirm("Save changes?", true)) {
+      await saveConfig(name, config);
+      console.log(success("Changes saved; nothing was deployed."));
+    } else console.log(warning("Changes discarded."));
   }
 }
