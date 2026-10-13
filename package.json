@@ -3,10 +3,27 @@
   "version": "0.1.0",
   "description": "Interactive Git-to-SFTP deployment CLI for Termux and Linux",
   "type": "module",
-  "bin": { "shipgit": "./bin/shipgit.js", "sg": "./bin/shipgit.js" },
-  "engines": { "node": ">=20" },
-  "scripts": { "start": "node ./bin/shipgit.js", "test": "node --test", "check": "node --check bin/shipgit.js && node --test" },
-  "keywords": ["git", "sftp", "deployment", "termux", "cli"],
+  "bin": {
+    "shipgit": "./bin/shipgit.js",
+    "sg": "./bin/shipgit.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node ./bin/shipgit.js",
+    "test": "node --test",
+    "check": "node --check bin/shipgit.js && node --check src/app.js && node --check src/config.js && node --check src/setup.js && node --check src/prompts.js && node --check src/commands/manager.js && node --check src/commands/subapp.js && node --check src/deploy.js && node --check src/git.js && node --check src/sftp.js && node --test"
+  },
+  "keywords": [
+    "git",
+    "sftp",
+    "deployment",
+    "termux",
+    "cli"
+  ],
   "license": "MIT",
-  "dependencies": { "ssh2-sftp-client": "^11.0.0" }
+  "dependencies": {
+    "ssh2-sftp-client": "^11.0.0"
+  }
 }
