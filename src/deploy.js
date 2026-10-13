@@ -7,7 +7,7 @@ async function walk(root, current, excludes, output) {
   for (const entry of await fs.readdir(current, { withFileTypes: true })) {
     const absolute = path.join(current, entry.name), relative = path.relative(root, absolute);
     const normalized = relative.split(path.sep).join("/");
-    if (excludes.some((pattern) => normalized === pattern || normalized.startsWith(pattern.replace(/\\/$/, "") + "/") || entry.name === pattern)) continue;
+    if (excludes.some((pattern) => normalized === pattern || normalized.startsWith((pattern.endsWith("/") ? pattern.slice(0, -1) : pattern) + "/") || entry.name === pattern)) continue;
     if (entry.isDirectory()) await walk(root, absolute, excludes, output);
     else if (entry.isFile()) {
       const stat = await fs.stat(absolute);
