@@ -16,12 +16,21 @@ export function run(command, args, options = {}) {
 
 async function runGit(args, tokenPath) {
   if (!tokenPath) return run("git", args);
+  let remoteUrl;
+  if (args[0] === "clone") remoteUrl = args[2];
+  else if (args[0] === "-C" && args[1]) remoteUrl = await run("git", ["-C", args[1], "remote", "get-url", "origin"]);
+  if (!remoteUrl) throw new Error("Cannot verify the GitHub remote before using the stored token.");
+  let parsedUrl;
+  try { parsedUrl = new URL(remoteUrl); } catch { throw new Error("Stored GitHub tokens can only be used with an HTTPS GitHub remote."); }
+  if (parsedUrl.protocol !== "https:" || parsedUrl.hostname.toLowerCase() !== "github.com" || parsedUrl.username || parsedUrl.password) {
+    throw new Error("Stored GitHub tokens can only be used with a clean HTTPS GitHub remote.");
+  }
   const token = (await fs.readFile(tokenPath, "utf8")).trim();
   if (!token) throw new Error("Stored GitHub token is empty. Update it in sub-app config.");
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shipgit-askpass-"));
   const askpass = path.join(tempDir, "askpass.sh");
   try {
-    await fs.writeFile(askpass, "#!/bin/sh\ncase \"$1\" in\n  *Username*) printf '%s\\n' 'x-access-token' ;;\n  *) printf '%s\\n' \"$SHIPGIT_GITHUB_TOKEN\" ;;\nesac\n", { mode: 0o700 });
+    await fs.writeFile(askpass, "#!/bin/sh\\ncase \\"$1\\" in\\n  *https://github.com/*) case \\"$1\\" in *Username*) printf '%s\\\\n' 'x-access-token' ;; *) printf '%s\\\\n' \\"$SHIPGIT_GITHUB_TOKEN\\" ;; esac ;;\\n  *) exit 1 ;;\\nesac\\n", { mode: 0o700 });
     await fs.chmod(askpass, 0o700);
     return await run("git", args, {
       env: { ...process.env, GIT_ASKPASS: askpass, GIT_TERMINAL_PROMPT: "0", SHIPGIT_GITHUB_TOKEN: token }
