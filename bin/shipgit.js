@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 import { startApp } from "../src/app.js";
-import { error, endTerminalSession, startTerminalSession } from "../src/terminal.js";
+import { error } from "../src/terminal.js";
 
 function restoreTerminal() {
   if (process.stdin.isTTY && typeof process.stdin.setRawMode === "function" && process.stdin.isRaw) {
     process.stdin.setRawMode(false);
   }
-  endTerminalSession();
+  if (process.stdout.isTTY) process.stdout.write("\x1b[0m\x1b[?25h");
 }
 
-startTerminalSession();
 process.once("SIGINT", () => {
   restoreTerminal();
   process.exit(130);
