@@ -23,7 +23,7 @@ export class Prompts {
         return this.ask(label, { defaultValue, required, validate });
       }
     }
-    if (stdin.isTTY && stdout.isTTY) console.log(success(label + " validated"));
+    if (value && stdin.isTTY && stdout.isTTY) console.log(success(label + " validated"));
     return value;
   }
 
