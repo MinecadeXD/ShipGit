@@ -17,7 +17,7 @@ export function run(command, args, options = {}) {
 async function runGit(args, tokenPath) {
   if (!tokenPath) return run("git", args);
   let remoteUrl;
-  if (args[0] === "clone") remoteUrl = args[2];
+  if (args[0] === "clone") remoteUrl = args[args.length - 2];
   else if (args[0] === "-C" && args[1]) remoteUrl = await run("git", ["-C", args[1], "remote", "get-url", "origin"]);
   if (!remoteUrl) throw new Error("Cannot verify the GitHub remote before using the stored token.");
   let parsedUrl;
@@ -30,10 +30,10 @@ async function runGit(args, tokenPath) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shipgit-askpass-"));
   const askpass = path.join(tempDir, "askpass.sh");
   try {
-    await fs.writeFile(askpass, "#!/bin/sh\ncase \"$1\" in\n  *https://github.com/*|*https://github.com:*|*https://github.com\\'*) case \"$1\" in *Username*) printf '%s\\n' 'x-access-token' ;; *) printf '%s\\n' \"$SHIPGIT_GITHUB_TOKEN\" ;; esac ;;\n  *) exit 1 ;;\nesac\n", { mode: 0o700 });
+    await fs.writeFile(askpass, "#!/bin/sh\ncase \"$1\" in\n  *github.com*)\n    case \"$1\" in\n      *Username*) printf '%s\\n' 'x-access-token' ;;\n      *Password*) printf '%s\\n' \"$SHIPGIT_GITHUB_TOKEN\" ;;\n      *) exit 1 ;;\n    esac ;;\n  *) exit 1 ;;\nesac\n", { mode: 0o700 });
     await fs.chmod(askpass, 0o700);
     return await run("git", args, {
-      env: { ...process.env, GIT_ASKPASS: askpass, GIT_TERMINAL_PROMPT: "0", SHIPGIT_GITHUB_TOKEN: token }
+      env: { ...process.env, GIT_ASKPASS: askpass, GIT_ASKPASS_REQUIRE: "force", GIT_TERMINAL_PROMPT: "0", SHIPGIT_GITHUB_TOKEN: token }
     });
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -51,8 +51,7 @@ export async function prepareRepository({ sourceType, repoUrl, localPath, branch
     try { await fs.access(targetDir); throw new Error("Clone destination already exists: " + targetDir); }
     catch (e) { if (e.code !== "ENOENT") throw e; }
     await fs.mkdir(path.dirname(targetDir), { recursive: true });
-    await runGit(["clone", "--", repoUrl, targetDir], githubTokenPath);
-    if (branch) await run("git", ["-C", targetDir, "checkout", branch]);
+    await runGit(["clone", ...(branch ? ["--branch", branch, "--single-branch"] : []), "--", repoUrl, targetDir], githubTokenPath);
     return path.resolve(targetDir);
   }
   if (!(await isGitRepo(localPath))) throw new Error("The selected path is not a Git working tree.");
