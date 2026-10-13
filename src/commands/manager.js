@@ -12,7 +12,7 @@ export async function managerPrompt() {
       if (!raw) continue;
       const [verb, name, ...rest] = raw.split(/\s+/);
       if (verb === "exit" || verb === "quit") break;
-      if (verb === "help" && !name) { console.log("Commands: setup, open <name>, list, remove <name>, help, exit"); continue; }
+      if (verb === "help" && !name) { console.log("Commands: setup, open <name>, list, delete <name> (alias: remove), help, exit"); continue; }
       if (verb === "list" && !name) {
         const apps = await listApps();
         if (!apps.length) console.log("No sub-apps yet. Run setup.");
@@ -25,10 +25,10 @@ export async function managerPrompt() {
         catch (e) { console.log("Cannot open sub-app: " + e.message); }
         continue;
       }
-      if (verb === "remove" && name && !rest.length) {
+      if ((verb === "remove" || verb === "delete") && name && !rest.length) {
         if (!(await listApps()).some((app) => app.name === name)) { console.log("Sub-app not found."); continue; }
-        console.log("Only local ShipGit config is removed; source and remote files are untouched.");
-        if (await prompts.confirm("Remove " + name + "?")) { await fs.rm(appDir(name), { recursive: true, force: true }); console.log("Sub-app removed."); }
+        console.log("This removes the sub-app settings and any ShipGit-managed clone/token. External local repositories and remote hosting files are untouched.");
+        if (await prompts.confirm("Delete sub-app " + name + "?")) { await fs.rm(appDir(name), { recursive: true, force: true }); console.log("Sub-app deleted. Remote hosting files were not changed."); }
         continue;
       }
       console.log("Unknown manager command. Type help.");
