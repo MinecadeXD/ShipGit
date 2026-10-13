@@ -2,58 +2,93 @@ import { configureApp } from "../config.js";
 import { readConfig } from "../utils.js";
 import { deploy } from "../deploy.js";
 import { testConnection } from "../sftp.js";
-import { title, success, error, info, muted, warning, section, color } from "../terminal.js";
+import { appTitle, success, error, info, muted, warning, section, color } from "../terminal.js";
+
+export async function deployApp(name, prompts, dryRun = false) {
+  const c = await readConfig(name);
+  if (!dryRun && !(await prompts.confirm("Deploy '" + name + "' to its configured SFTP destination?", false))) {
+    console.log(muted("Deployment cancelled."));
+    return null;
+  }
+  console.log(info(dryRun ? "Checking the deployment plan. No SFTP files will be changed…" : "Starting deployment…"));
+  const result = await deploy(c, { dryRun });
+  console.log(success((dryRun ? "Dry run" : "Deployment") + " finished · scanned " + result.total + " local files."));
+  for (const item of result.results) {
+    let prefix = success("UPLOAD");
+    if (item.action.startsWith("skipped") || item.action.startsWith("would-skip")) prefix = muted("SKIP");
+    else if (item.action.startsWith("would-delete")) prefix = warning("PLAN DELETE");
+    else if (item.action.startsWith("would-")) prefix = info("PLAN");
+    else if (item.action.startsWith("deleted")) prefix = warning("DELETED");
+    console.log("  " + prefix + "  " + item.path + muted(" · " + item.action));
+  }
+  if (dryRun) console.log(info("Dry run complete. No remote files were uploaded or deleted."));
+  else console.log(info("Remote deletion is " + (c.deletion?.enabled ? "ENABLED" : "disabled") + "."));
+  return result;
+}
+
+async function showStatus(name) {
+  const c = await readConfig(name);
+  section("App status · " + name);
+  const values = [
+    ["Source", c.sourceType || "unknown"],
+    ["Repository", c.sourceType === "clone" ? (c.repoUrl || c.repoPath) : c.repoPath],
+    ["Branch", c.branch || "not set"],
+    ["SFTP host", (c.sftp.host || "not set") + ":" + (c.sftp.port || 22)],
+    ["SFTP username", c.sftp.username || "not set"],
+    ["Remote directory", c.sftp.remoteDir || "not set"],
+    ["SSH key path", c.sftp.privateKeyPath || "not set"],
+    ["GitHub token", c.githubTokenPath ? "configured (value hidden)" : "not configured"],
+    ["Excluded paths", c.exclude?.length ? c.exclude.join(", ") : "none"],
+    ["Remote deletion", c.deletion?.enabled ? "ON" : "OFF"],
+    ["Deploy alias", c.deployAlias ? "sg " + c.deployAlias : "not set"]
+  ];
+  for (const [label, value] of values) console.log(color(label.padEnd(19), "cyan") + String(value));
+  try {
+    await testConnection(c.sftp);
+    console.log(success("SFTP destination is accessible."));
+  } catch (err) {
+    console.log(error("SFTP connection check failed: " + err.message));
+  }
+}
 
 export async function subAppPrompt(name, prompts) {
-  console.log(title("\nOpened " + name));
-  console.log(muted("Commands: deploy [--dry-run], config, status, help, back"));
+  console.log(appTitle("\nApp Prompt · " + name));
+  console.log(info("Commands: deploy, dry-run, config, status, help, back"));
   while (true) {
     const raw = (await prompts.ask(name + ">")).trim();
     if (!raw) continue;
-    const [command, ...args] = raw.toLowerCase().split(/\s+/);
-    if (command === "back" && !args.length) return;
-    if (command === "help" && !args.length) {
-      console.log(info("Commands: deploy [--dry-run], config, status, help, back"));
+    const [command, ...args] = raw.split(/\s+/);
+    const verb = command.toLowerCase();
+    if (verb === "back" && !args.length) return;
+    if (verb === "help" && !args.length) {
+      console.log(info("Commands: deploy, dry-run, config, status, help, back"));
+      console.log(muted("Use 'deploy' for a real deployment or 'dry-run' for a preview. They are separate commands."));
       continue;
     }
-    if (command === "config" && !args.length) {
+    if (verb === "config" && !args.length) {
       try { await configureApp(name, prompts); }
-      catch (e) { console.log(error("Config error: " + e.message)); }
+      catch (err) { console.log(error("Config error: " + err.message)); }
       continue;
     }
-    if (command === "status" && !args.length) {
-      try {
-        const c = await readConfig(name);
-        section("App status");
-        for (const [label, value] of [
-          ["Name", name], ["Source", c.sourceType], ["Repository", c.repoPath],
-          ["Branch", c.branch], ["SFTP host", c.sftp.host + ":" + c.sftp.port],
-          ["Remote directory", c.sftp.remoteDir], ["Remote deletion", "Disabled"]
-        ]) console.log(color(label.padEnd(18), "cyan") + value);
-        await testConnection(c.sftp);
-        console.log(success("SFTP destination is accessible."));
-      } catch (e) { console.log(error("Status check failed: " + e.message)); }
+    if (verb === "status" && !args.length) {
+      try { await showStatus(name); }
+      catch (err) { console.log(error("Status check failed: " + err.message)); }
       continue;
     }
-    if (command === "deploy" && args.every((a) => a === "--dry-run") && args.length <= 1) {
-      const dryRun = args.includes("--dry-run");
-      try {
-        const c = await readConfig(name);
-        if (!dryRun && !(await prompts.confirm("Deploy to the configured SFTP destination?", false))) {
-          console.log(muted("Deployment cancelled."));
-          continue;
-        }
-        console.log(info(dryRun ? "Preparing a dry run…" : "Starting deployment…"));
-        const result = await deploy(c, { dryRun });
-        console.log(success((dryRun ? "Dry run" : "Deployment") + " finished · scanned " + result.total + " files."));
-        for (const item of result.results) {
-          const prefix = item.action.startsWith("skipped") ? muted("SKIP") : item.action.startsWith("would-") ? info("PLAN") : success("UPLOAD");
-          console.log("  " + prefix + "  " + item.path + muted(" · " + item.action));
-        }
-        console.log(muted("Remote deletion is disabled."));
-      } catch (e) { console.log(error("Deployment failed: " + e.message)); }
+    if (verb === "deploy" && !args.length) {
+      try { await deployApp(name, prompts, false); }
+      catch (err) { console.log(error("Deployment failed: " + err.message)); }
       continue;
     }
-    console.log(error("Unknown sub-app command. Type help."));
+    if (verb === "dry-run" && !args.length) {
+      try { await deployApp(name, prompts, true); }
+      catch (err) { console.log(error("Dry run failed: " + err.message)); }
+      continue;
+    }
+    if (verb === "deploy" && args.length) {
+      console.log(error("Use 'dry-run' as a separate command; 'deploy --dry-run' is no longer supported."));
+      continue;
+    }
+    console.log(error("Unknown command. Type help."));
   }
 }
