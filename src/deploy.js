@@ -1,12 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { updateRepository } from "./git.js";
+import { hashFile } from "./sftp.js";
+
 async function walk(root, current, excludes, output) {
   for (const entry of await fs.readdir(current, { withFileTypes: true })) {
     const absolute = path.join(current, entry.name), relative = path.relative(root, absolute);
-    if (excludes.some((pattern) => relative === pattern || relative.startsWith(pattern + "/") || entry.name === pattern)) continue;
+    const normalized = relative.split(path.sep).join("/");
+    if (excludes.some((pattern) => normalized === pattern || normalized.startsWith(pattern.replace(/\\/$/, "") + "/") || entry.name === pattern)) continue;
     if (entry.isDirectory()) await walk(root, absolute, excludes, output);
-    else if (entry.isFile()) output.push({ absolute, relative, size: (await fs.stat(absolute)).size });
+    else if (entry.isFile()) {
+      const stat = await fs.stat(absolute);
+      output.push({ absolute, relative, size: stat.size, sha256: await hashFile(absolute) });
+    }
   }
 }
 export async function collectFiles(config) {

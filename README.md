@@ -11,7 +11,7 @@
 
 ShipGit keeps deployment settings isolated by project. Create one sub-app per repository and deploy its files to an SFTP destination from a persistent interactive prompt.
 
-> **Early development:** test against a non-production destination first. The initial file comparison uses remote file size, so changed files with the same size may be skipped. This limitation must be addressed before stable use.
+> **Early development:** test against a non-production destination first. Same-sized remote files are downloaded to a temporary file and compared using SHA-256. This is more reliable than size-only checks, but may add time and bandwidth for large files.
 
 ## Features
 
@@ -74,7 +74,7 @@ Private keys are stored separately from app configuration with restrictive file 
 - Remote deletion is not implemented.
 - Dry-run previews files, but a cloned repository may still fetch/update its local checkout.
 - Never put private keys or credentials in public issues or repositories.
-- File comparison is currently size-based and not yet reliable for production-critical deployments.
+- File comparison uses size as a quick filter and SHA-256 for same-sized files. Remote comparison failures stop deployment instead of silently skipping the file.
 
 ## Development
 
