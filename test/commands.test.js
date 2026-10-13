@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { collectFiles } from "../src/deploy.js";
-import { hashFile } from "../src/sftp.js";
+import { hashFile, assertSafeDeletionRoot } from "../src/sftp.js";
 import { storeGitHubToken } from "../src/security.js";
 import { validDeployAlias } from "../src/utils.js";
 
@@ -55,4 +55,11 @@ test("deploy aliases are safe single arguments and cannot shadow built-in comman
   assert.equal(validDeployAlias("../outside"), false);
   assert.equal(validDeployAlias("dry-run"), false);
   assert.equal(validDeployAlias("CONFIG"), false);
+});
+
+test("remote deletion rejects unsafe destination roots", () => {
+  assert.equal(assertSafeDeletionRoot("/public_html"), undefined);
+  assert.throws(() => assertSafeDeletionRoot("/"));
+  assert.throws(() => assertSafeDeletionRoot("."));
+  assert.throws(() => assertSafeDeletionRoot("/public_html/../other"));
 });
