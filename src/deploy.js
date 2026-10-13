@@ -22,7 +22,7 @@ export async function collectFiles(config) {
 }
 export async function deploy(config, { dryRun = false } = {}) {
   let commit = null;
-  if (config.sourceType === "clone" && config.updateBeforeDeploy !== false) commit = await updateRepository(config.repoPath, config.branch);
+  if (config.sourceType === "clone" && config.updateBeforeDeploy !== false) commit = await updateRepository(config.repoPath, config.branch, config.githubTokenPath);
   const files = await collectFiles(config);
   const { deployFiles } = await import("./sftp.js");
   const results = await deployFiles(config.sftp, files, { dryRun });
