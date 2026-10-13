@@ -10,10 +10,7 @@ export class Prompts {
     const suffix = defaultValue ? muted(" [" + defaultValue + "]") : "";
     const promptTone = label.endsWith(">") ? (label === "shipgit>" ? "magenta" : "blue") : "cyan";
     const raw = (await this.rl.question(color(label, promptTone) + suffix + ": ")).trim();
-    if (stdin.isTTY && stdout.isTTY) {
-      stdout.write("\x1b[1A\x1b[2K\r");
-      console.log(success(label + " accepted"));
-    }
+    if (stdin.isTTY && stdout.isTTY) stdout.write("\x1b[1A\x1b[2K\r");
     const value = raw || defaultValue;
     if (required && !value) {
       console.log(error("A value is required."));
@@ -26,6 +23,7 @@ export class Prompts {
         return this.ask(label, { defaultValue, required, validate });
       }
     }
+    if (stdin.isTTY && stdout.isTTY) console.log(success(label + " validated"));
     return value;
   }
 
