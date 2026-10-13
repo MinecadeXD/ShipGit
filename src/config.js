@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { readConfig, saveConfig, redactConfig, appDir } from "./utils.js";
 import { testConnection } from "./sftp.js";
-import { Prompts } from "./prompts.js";
 
 export async function configureApp(name, prompts) {
   const config = await readConfig(name);
@@ -15,6 +14,10 @@ export async function configureApp(name, prompts) {
     if (choice === choices.length - 1) return;
     if (isClone && choice === 1) {
       const token = await prompts.askSecret("GitHub Personal Access Token", { required: true });
+      if (!(await prompts.confirm("Save this token for future private-repository updates?", true))) {
+        console.log("Token discarded; existing credentials were left unchanged.");
+        continue;
+      }
       const tokenPath = config.githubTokenPath || path.join(appDir(name), "github-token");
       await fs.mkdir(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
       const tempPath = tokenPath + ".tmp";
@@ -22,14 +25,8 @@ export async function configureApp(name, prompts) {
       await fs.rename(tempPath, tokenPath);
       await fs.chmod(tokenPath, 0o600).catch(() => {});
       config.githubTokenPath = tokenPath;
-      if (await prompts.confirm("Save token for future private-repository updates?", true)) {
-        await saveConfig(name, config);
-        console.log("GitHub token saved privately; it will not appear in the repository URL or config output.");
-      } else {
-        await fs.rm(tokenPath, { force: true });
-        delete config.githubTokenPath;
-        console.log("Token discarded.");
-      }
+      await saveConfig(name, config);
+      console.log("GitHub token saved privately; it will not appear in the repository URL or config output.");
       continue;
     }
     if (isClone && choice > 1) choice -= 1;
