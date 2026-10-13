@@ -71,7 +71,7 @@ async function listRemoteFiles(client, root) {
   async function walk(current) {
     const entries = await client.list(current);
     for (const entry of entries) {
-      if (!entry.name || entry.name === "." || entry.name === ".." || entry.name.includes("/") || entry.name.includes("\\\\")) continue;
+      if (!entry.name || entry.name === "." || entry.name === ".." || entry.name.includes("/") || entry.name.includes("\\")) continue;
       const remotePath = path.posix.join(current, entry.name);
       if (entry.type === "l") continue; // Never follow or delete symlinks.
       if (entry.type === "d") await walk(remotePath);
