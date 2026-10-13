@@ -59,8 +59,10 @@ export async function subAppPrompt(name, prompts) {
   console.log(info("Commands: deploy, dry-run, config, status, help, back"));
   while (true) {
     const raw = (await prompts.ask(name + ">")).trim();
-    if (!raw) continue;
-    const [command, ...args] = raw.split(/\s+/);
+    const commandLine = raw || ["deploy", "dry-run", "config", "status", "help", "back"][
+      await prompts.choose("Choose an app command", ["Deploy", "Dry run", "Config", "Status", "Help", "Back"])
+    ];
+    const [command, ...args] = commandLine.split(/\s+/);
     const verb = command.toLowerCase();
     if (verb === "back" && !args.length) return;
     if (verb === "help" && !args.length) {
