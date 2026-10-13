@@ -23,7 +23,7 @@ export async function startApp(args = process.argv.slice(2)) {
     try {
       await deployApp(app.name, prompts, mode === "dry-run");
     } catch (err) {
-      console.error(error((mode === "dry-run" ? "Dry run" : "Deployment") + " failed: " + (err?.message || String(err)));
+      console.error(error((mode === "dry-run" ? "Dry run" : "Deployment") + " failed: " + (err?.message || String(err))));
     }
 
     if (process.stdin.isTTY && process.stdout.isTTY) {
