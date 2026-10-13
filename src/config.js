@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { readConfig, saveConfig, appDir, validDeployAlias } from "./utils.js";
+import { readConfig, saveConfig, appDir, validDeployAlias, listApps } from "./utils.js";
 import { testConnection } from "./sftp.js";
 import { listRemoteBranches, listLocalBranches } from "./git.js";
 import { success, error, info, muted, warning, section } from "./terminal.js";
@@ -77,7 +77,7 @@ export async function configureApp(name, prompts) {
           validate: (v) => {
             try {
               const u = new URL(v);
-              return ["https:", "ssh:"].includes(u.protocol) && !u.username && !u.password || "Enter a valid repository URL without embedded credentials.";
+              return (u.protocol === "https:" && !u.username && !u.password) || (u.protocol === "ssh:" && u.username === "git" && !u.password) || "Enter a valid repository URL without embedded credentials.";
             } catch { return /^git@[a-zA-Z0-9.-]+:[a-zA-Z0-9._/-]+(?:\.git)?$/.test(v) || "Enter a valid repository URL."; }
           }
         });
@@ -174,8 +174,7 @@ export async function configureApp(name, prompts) {
         defaultValue: current, required: true,
         validate: (v) => validDeployAlias(v) || "Use 1–40 letters, numbers, dots, underscores or hyphens. Built-in commands are reserved."
       });
-      const conflict = (await import("./utils.js")).listApps;
-      const apps = await conflict();
+      const apps = await listApps();
       if (apps.some((app) => app.name !== name && app.config.deployAlias?.toLowerCase() === alias.toLowerCase())) {
         console.log(error("That alias is already assigned to another app."));
         continue;
