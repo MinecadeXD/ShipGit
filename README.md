@@ -22,7 +22,7 @@ ShipGit keeps deployment settings isolated by project. Create one sub-app per re
 - Select an existing key, paste private key text, or generate an Ed25519 key.
 - Read-only SFTP connection test during setup; setup never deploys automatically.
 - `deploy --dry-run` preview.
-- Remote deletion is disabled. Removing a sub-app never deletes remote files or the source repository.
+- Remote deletion is disabled. Deleting a sub-app never deletes remote hosting files or an external local repository.
 
 ## Requirements
 
