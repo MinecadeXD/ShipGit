@@ -9,11 +9,12 @@ import { color, title, success, error, warning, info, muted, step, section } fro
 
 const expand = (value) => path.resolve(value.replace(/^~(?=$|\/)/, os.homedir()));
 const validRepoUrl = (value) => {
+  if (/^git@[a-zA-Z0-9.-]+:[a-zA-Z0-9._/-]+(?:\.git)?$/.test(value)) return true;
   try {
     const url = new URL(value);
-    return (url.protocol === "https:" || url.protocol === "ssh:") &&
-      !url.username && !url.password &&
-      (url.protocol !== "https:" || Boolean(url.hostname));
+    const https = url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password;
+    const ssh = url.protocol === "ssh:" && Boolean(url.hostname) && url.username === "git" && !url.password;
+    return https || ssh;
   } catch { return false; }
 };
 const validBranch = async (branch) => {
