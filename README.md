@@ -20,7 +20,7 @@ ShipGit keeps deployment settings isolated by project. Create one sub-app per re
 - Clone a public Git repository, clone a private GitHub repository with a Personal Access Token (PAT), or use an existing local Git checkout.
 - Configure branch, SFTP host/port/user/destination, exclusions and SSH key.
 - Select an existing key, paste private key text, or generate an Ed25519 key.
-- Read-only SFTP connection test during setup; setup never deploys automatically.
+- Guided setup with color-coded status, input validation, and arrow-key menus where the terminal supports them (numbered fallback otherwise).\n- Read-only SFTP connection test during setup; setup never deploys automatically.\n- Set `NO_COLOR=1` or pass `--no-color` to disable ANSI colors.
 - `deploy --dry-run` preview.
 - Remote deletion is disabled. Deleting a sub-app never deletes remote hosting files or an external local repository.
 
@@ -78,7 +78,7 @@ When choosing **Clone a remote Git repository**, ShipGit asks whether the reposi
 
 ## SSH keys and safety
 
-Private keys are stored separately from app configuration with restrictive file permissions. For pasted keys, the terminal may echo input; only use a trusted, private terminal. Generated public keys must be registered with your host yourself—ShipGit cannot authorize them on your behalf.
+Private keys are stored separately from app configuration with restrictive file permissions. Pasted private-key lines and GitHub tokens are entered through masked prompts. Newly generated Ed25519 keys are created quietly in the background and are not overwritten if the destination already exists. Generated public keys must be registered with your host yourself—ShipGit cannot authorize them on your behalf. Generated keys currently have no passphrase, so keep the private-key file protected.
 
 - Setup tests authentication and reads the remote destination; it does not upload.
 - Remote deletion is not implemented. The manager `delete <name>` command (also available as `remove <name>`) removes that sub-app's settings, stored token, and ShipGit-managed clone; it never deletes remote hosting files or an external local repository.
