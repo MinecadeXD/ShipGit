@@ -203,7 +203,7 @@ export async function setupApp(prompts) {
         return true;
       }
     });
-    const exclude = excludeInput.split(",").map((x) => x.trim().replace(/\\/g, "/")).filter(Boolean);
+    let exclude = excludeInput.split(",").map((x) => x.trim().replace(/\\/g, "/")).filter(Boolean);
     const config = {
       name, sourceType, repoUrl, repoPath: prepared, branch,
       updateBeforeDeploy: sourceType === "clone",
@@ -211,28 +211,98 @@ export async function setupApp(prompts) {
       exclude, deletion: { enabled: false }, sftp
     };
 
-    section("Review your app");
-    const review = [
-      ["App name", name],
-      ["Repository", sourceType === "clone" ? repoUrl : prepared],
-      ["Visibility", sourceType === "clone" ? (githubTokenPath ? "Private GitHub (token stored securely)" : "Public / remote Git") : "Local repository"],
-      ["Branch", branch],
-      ["SSH key", privateKeyPath],
-      ["SFTP host", sftp.host + ":" + sftp.port],
-      ["Username", sftp.username],
-      ["Remote directory", sftp.remoteDir],
-      ["Excluded paths", exclude.length ? exclude.join(", ") : "None"],
-      ["Remote deletion", "Disabled"]
-    ];
-    for (const [label, value] of review) console.log(color(label.padEnd(19), "cyan") + value);
-    console.log(muted("\nSetup only saves configuration; it will not upload files."));
-    const next = await prompts.choose("Finish setup?", ["Save configuration and finish", "Cancel setup"]);
-    if (next !== 0) throw new Error("Setup cancelled; configuration was not saved.");
-    await saveConfig(name, config);
-    configSaved = true;
-    console.log(success("Setup completed. Configuration saved."));
-    console.log(info("No files have been deployed. Choose 'Deploy now' from the next menu when you're ready."));
-    return name;
+    while (true) {
+      section("Review your app");
+      const review = [
+        ["App name", name],
+        ["Repository", sourceType === "clone" ? repoUrl : prepared],
+        ["Visibility", sourceType === "clone" ? (githubTokenPath ? "Private GitHub (token stored securely)" : "Public / remote Git") : "Local repository"],
+        ["Branch", branch],
+        ["SSH key", privateKeyPath],
+        ["SFTP host", sftp.host + ":" + sftp.port],
+        ["Username", sftp.username],
+        ["Remote directory", sftp.remoteDir],
+        ["Excluded paths", exclude.length ? exclude.join(", ") : "None"],
+        ["Remote deletion", "Disabled"]
+      ];
+      for (const [label, value] of review) console.log(color(label.padEnd(19), "cyan") + value);
+      console.log(muted("\nSetup only saves configuration; it will not upload files."));
+      const next = await prompts.choose("Finish setup?", [
+        "Save configuration and finish",
+        "Go back and change settings",
+        "Cancel setup"
+      ]);
+      if (next === 0) {
+        config.sftp = sftp;
+        config.sftp.privateKeyPath = privateKeyPath;
+        config.exclude = exclude;
+        await saveConfig(name, config);
+        configSaved = true;
+        console.log(success("Setup completed. Configuration saved."));
+        console.log(info("No files have been deployed. Choose 'Deploy' from the app menu when you're ready."));
+        return name;
+      }
+      if (next === 2) throw new Error("Setup cancelled; configuration was not saved.");
+
+      const edit = await prompts.choose("Which setting would you like to change?", [
+        "SFTP connection details",
+        "SSH private key",
+        "Excluded paths",
+        "Return to review"
+      ]);
+      if (edit === 3) continue;
+      if (edit === 1) {
+        const nextKey = expand(await prompts.ask("Private key file path", {
+          defaultValue: privateKeyPath,
+          required: true,
+          validate: existingReadableFile
+        }));
+        const candidate = { ...sftp, privateKeyPath: nextKey };
+        try {
+          await testConnection(candidate);
+          privateKeyPath = nextKey;
+          sftp = candidate;
+          console.log(success("New SSH key verified against the SFTP host."));
+        } catch (err) {
+          console.log(error("SSH key test failed: " + err.message));
+        }
+        continue;
+      }
+      if (edit === 2) {
+        const updated = await prompts.ask("Exclude paths (comma-separated, blank for none)", {
+          defaultValue: exclude.join(", "),
+          validate: (value) => {
+            const entries = value.split(",").map((x) => x.trim()).filter(Boolean);
+            if (entries.some((item) => path.isAbsolute(item) || item.split(/[\\/]/).includes(".."))) return "Exclude paths must be relative and cannot contain '..'.";
+            return true;
+          }
+        });
+        exclude = updated.split(",").map((x) => x.trim().replace(/\\/g, "/")).filter(Boolean);
+        continue;
+      }
+
+      while (true) {
+        const host = await prompts.ask("SFTP host", { defaultValue: sftp.host, required: true, validate: hostValid });
+        const port = Number(await prompts.ask("SFTP port", {
+          defaultValue: String(sftp.port),
+          required: true,
+          validate: (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 65535 || "Port must be a number from 1 to 65535."
+        }));
+        const username = await prompts.ask("SFTP username", { defaultValue: sftp.username, required: true });
+        const remoteDir = await prompts.ask("Remote destination directory", { defaultValue: sftp.remoteDir, required: true, validate: remotePathValid });
+        const candidate = { host, port, username, remoteDir, privateKeyPath };
+        console.log(info("Testing updated SFTP settings (read-only)…"));
+        try {
+          await testConnection(candidate);
+          sftp = candidate;
+          console.log(success("Updated SFTP connection verified."));
+          break;
+        } catch (err) {
+          console.log(error("SFTP connection check failed: " + err.message));
+          if (!(await prompts.confirm("Retry the SFTP settings?", true))) break;
+        }
+      }
+    }
   } catch (err) {
     if (!configSaved && sourceType === "clone" && name) {
       await fs.rm(appDir(name), { recursive: true, force: true }).catch(() => {});
