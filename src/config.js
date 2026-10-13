@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { readConfig, saveConfig, redactConfig, appDir } from "./utils.js";
 import { testConnection } from "./sftp.js";
+import { success, error, info, muted, warning, section } from "./terminal.js";
 
 export async function configureApp(name, prompts) {
   const config = await readConfig(name);
@@ -14,14 +15,14 @@ export async function configureApp(name, prompts) {
     if (choice === choices.length - 1) return;
     if (isClone && choice === 1) {
       let repoUrl;
-      try { repoUrl = new URL(config.repoUrl); } catch { console.log("Set a valid HTTPS GitHub repository URL before adding a token."); continue; }
+      try { repoUrl = new URL(config.repoUrl); } catch { console.log(error("Set a valid HTTPS GitHub repository URL before adding a token.")); continue; }
       if (repoUrl.protocol !== "https:" || repoUrl.hostname.toLowerCase() !== "github.com" || repoUrl.username || repoUrl.password) {
-        console.log("GitHub tokens require a clean https://github.com/OWNER/REPO.git URL.");
+        console.log(error("GitHub tokens require a clean https://github.com/OWNER/REPO.git URL."));
         continue;
       }
       const token = await prompts.askSecret("GitHub Personal Access Token", { required: true });
       if (!(await prompts.confirm("Save this token for future private-repository updates?", true))) {
-        console.log("Token discarded; existing credentials were left unchanged.");
+        console.log(muted("Token discarded; existing credentials were left unchanged."));
         continue;
       }
       const tokenPath = config.githubTokenPath || path.join(appDir(name), "github-token");
@@ -32,7 +33,7 @@ export async function configureApp(name, prompts) {
       await fs.chmod(tokenPath, 0o600).catch(() => {});
       config.githubTokenPath = tokenPath;
       await saveConfig(name, config);
-      console.log("GitHub token saved privately; it will not appear in the repository URL or config output.");
+      console.log(success("GitHub token saved privately; it will not appear in the repository URL or config output."));
       continue;
     }
     if (isClone && choice > 1) choice -= 1;
@@ -42,25 +43,25 @@ export async function configureApp(name, prompts) {
         const nextUrl = await prompts.ask("Repository URL", { defaultValue: config.repoUrl, required: true });
         if (/^https?:\/\//i.test(nextUrl)) {
           const parsed = new URL(nextUrl);
-          if (parsed.username || parsed.password) { console.log("Do not put credentials in the repository URL."); continue; }
+          if (parsed.username || parsed.password) { console.log(error("Do not put credentials in the repository URL.")); continue; }
         }
         config.repoUrl = nextUrl;
       } else config.repoPath = await prompts.ask("Local repository path", { defaultValue: config.repoPath, required: true });
     } else if (choice === 1) {
       config.sftp.host = await prompts.ask("SFTP host", { defaultValue: config.sftp.host, required: true });
       const port = Number(await prompts.ask("SFTP port", { defaultValue: String(config.sftp.port), required: true }));
-      if (!Number.isInteger(port) || port < 1 || port > 65535) { console.log("Invalid port; change discarded."); continue; }
+      if (!Number.isInteger(port) || port < 1 || port > 65535) { console.log(error("Invalid port; change discarded.")); continue; }
       config.sftp.port = port;
       config.sftp.username = await prompts.ask("Username", { defaultValue: config.sftp.username, required: true });
       config.sftp.remoteDir = await prompts.ask("Remote destination", { defaultValue: config.sftp.remoteDir, required: true });
     } else if (choice === 2) config.sftp.privateKeyPath = await prompts.ask("Private key path", { defaultValue: config.sftp.privateKeyPath, required: true });
     else if (choice === 3) config.exclude = (await prompts.ask("Comma-separated excludes", { defaultValue: (config.exclude || []).join(",") })).split(",").map((x) => x.trim()).filter(Boolean);
     else if (choice === 4) {
-      try { await testConnection(config.sftp); console.log("SFTP connection passed; no files changed."); }
-      catch (e) { console.log("Connection failed: " + e.message); }
+      try { await testConnection(config.sftp); console.log(success("SFTP connection passed; no files changed.")); }
+      catch (e) { console.log(error("Connection failed: " + e.message)); }
       continue;
-    } else if (choice === 5) { console.log(JSON.stringify(redactConfig(config), null, 2)); continue; }
-    if (await prompts.confirm("Save changes?", true)) { await saveConfig(name, config); console.log("Saved; nothing was deployed."); }
-    else console.log("Changes discarded.");
+    } else if (choice === 5) { section("Non-secret configuration"); console.log(JSON.stringify(redactConfig(config), null, 2)); continue; }
+    if (await prompts.confirm("Save changes?", true)) { await saveConfig(name, config); console.log(success("Changes saved; nothing was deployed.")); }
+    else console.log(warning("Changes discarded."));
   }
 }
