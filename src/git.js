@@ -30,7 +30,7 @@ async function runGit(args, tokenPath) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "shipgit-askpass-"));
   const askpass = path.join(tempDir, "askpass.sh");
   try {
-    await fs.writeFile(askpass, "#!/bin/sh\\ncase \\"$1\\" in\\n  *https://github.com/*) case \\"$1\\" in *Username*) printf '%s\\\\n' 'x-access-token' ;; *) printf '%s\\\\n' \\"$SHIPGIT_GITHUB_TOKEN\\" ;; esac ;;\\n  *) exit 1 ;;\\nesac\\n", { mode: 0o700 });
+    await fs.writeFile(askpass, "#!/bin/sh\ncase \"$1\" in\n  *https://github.com/*) case \"$1\" in *Username*) printf '%s\\n' 'x-access-token' ;; *) printf '%s\\n' \"$SHIPGIT_GITHUB_TOKEN\" ;; esac ;;\n  *) exit 1 ;;\nesac\n", { mode: 0o700 });
     await fs.chmod(askpass, 0o700);
     return await run("git", args, {
       env: { ...process.env, GIT_ASKPASS: askpass, GIT_TERMINAL_PROMPT: "0", SHIPGIT_GITHUB_TOKEN: token }
