@@ -27,7 +27,8 @@ async function afterSetup(name, prompts) {
     await subAppPrompt(name, prompts);
     return "continue";
   }
-  await deployApp(name, prompts, false);
+  try { await deployApp(name, prompts, false); }
+  catch (err) { console.log(error("Deployment failed: " + err.message)); }
   return "continue";
 }
 
