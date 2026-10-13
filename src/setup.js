@@ -5,7 +5,7 @@ import { listApps, saveConfig, validAppName, appDir } from "./utils.js";
 import { prepareRepository, isGitRepo, run } from "./git.js";
 import { generateKey, storePastedKey, storeGitHubToken } from "./security.js";
 import { testConnection } from "./sftp.js";
-import { title, success, error, warning, info, muted, step, section } from "./terminal.js";
+import { color, title, success, error, warning, info, muted, step, section } from "./terminal.js";
 
 const expand = (value) => path.resolve(value.replace(/^~(?=$|\/)/, os.homedir()));
 const validRepoUrl = (value) => {
@@ -211,12 +211,20 @@ export async function setupApp(prompts) {
     };
 
     section("Review your app");
-    console.log(JSON.stringify({
-      name, repository: sourceType === "clone" ? repoUrl : prepared,
-      visibility: sourceType === "clone" ? (githubTokenPath ? "private GitHub" : "public / remote Git") : "local",
-      branch, sshKey: privateKeyPath, sftp: { host: sftp.host, port: sftp.port, username: sftp.username, remoteDir: sftp.remoteDir },
-      exclude, remoteDeletion: "disabled"
-    }, null, 2));
+    const review = [
+      ["App name", name],
+      ["Repository", sourceType === "clone" ? repoUrl : prepared],
+      ["Visibility", sourceType === "clone" ? (githubTokenPath ? "Private GitHub (token stored securely)" : "Public / remote Git") : "Local repository"],
+      ["Branch", branch],
+      ["SSH key", privateKeyPath],
+      ["SFTP host", sftp.host + ":" + sftp.port],
+      ["Username", sftp.username],
+      ["Remote directory", sftp.remoteDir],
+      ["Excluded paths", exclude.length ? exclude.join(", ") : "None"],
+      ["Remote deletion", "Disabled"]
+    ];
+    for (const [label, value] of review) console.log(color(label.padEnd(19), "cyan") + value);
+    console.log(muted("\nSetup only saves configuration; it will not upload files."));
     const next = await prompts.choose("Finish setup?", ["Save configuration and finish", "Cancel setup"]);
     if (next !== 0) throw new Error("Setup cancelled; configuration was not saved.");
     await saveConfig(name, config);
