@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { startApp } from "../src/app.js";
-startApp().catch((error) => {
-  console.error("ShipGit: " + error.message);
+import { error } from "../src/terminal.js";
+startApp().catch((err) => {
+  console.error(error("ShipGit: " + err.message));
   process.exitCode = 1;
 });
