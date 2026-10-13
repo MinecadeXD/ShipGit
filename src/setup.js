@@ -3,7 +3,7 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import { listApps, saveConfig, validAppName, appDir } from "./utils.js";
 import { prepareRepository } from "./git.js";
-import { generateKey, storePastedKey } from "./security.js";
+import { generateKey, storePastedKey, storeGitHubToken } from "./security.js";
 import { testConnection } from "./sftp.js";
 const expand = (value) => path.resolve(value.replace(/^~(?=$|\/)/, os.homedir()));
 export async function setupApp(prompts) {
@@ -14,9 +14,33 @@ export async function setupApp(prompts) {
   const sourceType = sourceChoice === 0 ? "clone" : "local";
   const repoUrl = sourceType === "clone" ? await prompts.ask("Git repository URL", { required: true }) : null;
   const localPath = sourceType === "local" ? expand(await prompts.ask("Local repository path", { required: true })) : null;
+  let githubTokenPath = null;
+  if (sourceType === "clone") {
+    if (/^https?:\/\//i.test(repoUrl)) {
+      const parsed = new URL(repoUrl);
+      if (parsed.username || parsed.password) throw new Error("Do not put credentials in the repository URL; use the private-repository token prompt.");
+    }
+    const visibility = await prompts.choose("Repository visibility", ["Public repository", "Private GitHub repository (use a token)"]);
+    if (visibility === 1) {
+      let parsed;
+      try { parsed = new URL(repoUrl); } catch { throw new Error("Private-repository token authentication requires an HTTPS GitHub URL."); }
+      if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "github.com" || parsed.username || parsed.password) {
+        throw new Error("Private-repository token authentication requires a clean https://github.com/OWNER/REPO.git URL.");
+      }
+      const token = await prompts.askSecret("GitHub Personal Access Token", { required: true });
+      githubTokenPath = path.join(appDir(name), "github-token");
+      await storeGitHubToken(token, githubTokenPath);
+    }
+  }
   const branch = await prompts.ask("Branch to deploy", { defaultValue: "main", required: true });
   const repoPath = sourceType === "clone" ? path.join(appDir(name), "repository") : localPath;
-  const prepared = await prepareRepository({ sourceType, repoUrl, localPath, branch, targetDir: repoPath });
+  let prepared;
+  try {
+    prepared = await prepareRepository({ sourceType, repoUrl, localPath, branch, targetDir: repoPath, githubTokenPath });
+  } catch (error) {
+    if (githubTokenPath) await fs.rm(githubTokenPath, { force: true }).catch(() => {});
+    throw error;
+  }
   const host = await prompts.ask("SFTP host", { required: true });
   const port = Number(await prompts.ask("SFTP port", { defaultValue: "22", required: true }));
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("SFTP port must be 1–65535.");
@@ -40,7 +64,7 @@ export async function setupApp(prompts) {
   }
   await fs.access(privateKeyPath);
   const exclude = (await prompts.ask("Exclude paths (comma-separated, blank for none)")).split(",").map((x) => x.trim()).filter(Boolean);
-  const config = { name, sourceType, repoUrl, repoPath: prepared, branch, updateBeforeDeploy: sourceType === "clone", exclude, deletion: { enabled: false }, sftp: { host, port, username, remoteDir, privateKeyPath } };
+  const config = { name, sourceType, repoUrl, repoPath: prepared, branch, updateBeforeDeploy: sourceType === "clone", ...(githubTokenPath ? { githubTokenPath } : {}), exclude, deletion: { enabled: false }, sftp: { host, port, username, remoteDir, privateKeyPath } };
   console.log("Testing SFTP authentication and destination access (read-only)...");
   await testConnection(config.sftp);
   console.log("Connection test passed; no remote files changed.");
