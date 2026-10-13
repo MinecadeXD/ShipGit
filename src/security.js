@@ -30,3 +30,12 @@ export async function generateKey(destination) {
   await fs.chmod(target, 0o600).catch(() => {});
   return target;
 }
+
+export async function storeGitHubToken(token, destination) {
+  if (typeof token !== "string" || !token.trim()) throw new Error("GitHub token is required.");
+  const target = expand(destination);
+  await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  await fs.writeFile(target, token.trim() + "\n", { mode: 0o600, flag: "wx" });
+  await fs.chmod(target, 0o600).catch(() => {});
+  return target;
+}
