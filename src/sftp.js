@@ -34,12 +34,25 @@ function isDirectoryStat(stat) {
 function isFileStat(stat) {
   return typeof stat.isFile === "function" ? stat.isFile() : Boolean(stat.isFile);
 }
-
 function isMissingRemote(error) {
   const message = String(error?.message || "").toLowerCase();
   return error?.code === "ENOENT" || error?.code === 2 ||
     message.includes("no such file") || message.includes("does not exist") ||
     message.includes("not found");
+}
+function shouldExclude(relative, excludes = []) {
+  const normalized = relative.split(path.sep).join("/");
+  const base = path.posix.basename(normalized);
+  return excludes.some((pattern) => {
+    const p = String(pattern).replace(/\\/g, "/").replace(/^\.\//, "");
+    return normalized === p || normalized.startsWith((p.endsWith("/") ? p.slice(0, -1) : p) + "/") || base === p;
+  });
+}
+function assertSafeDeletionRoot(root) {
+  const value = String(root || "").replace(/\\/g, "/");
+  if (!value.startsWith("/") || value === "/" || value.split("/").includes("..") || path.posix.normalize(value) !== value.replace(/\/$/, "")) {
+    throw new Error("Remote deletion requires a dedicated, normalized absolute remote directory (not '/' or '.'). Disable deletion or choose a dedicated directory.");
+  }
 }
 
 async function remoteHash(client, remotePath) {
@@ -53,48 +66,73 @@ async function remoteHash(client, remotePath) {
   }
 }
 
-export async function deployFiles(config, files, { dryRun = false } = {}) {
-  if (dryRun) return files.map((file) => ({ path: file.relative, action: "would-check-and-upload-if-changed" }));
+async function listRemoteFiles(client, root) {
+  const files = [];
+  async function walk(current) {
+    const entries = await client.list(current);
+    for (const entry of entries) {
+      if (!entry.name || entry.name === "." || entry.name === "..") continue;
+      const remotePath = path.posix.join(current, entry.name);
+      if (entry.type === "l") continue; // Never follow or delete symlinks.
+      if (entry.type === "d") await walk(remotePath);
+      else files.push({ remotePath, relative: path.posix.relative(root, remotePath) });
+    }
+  }
+  await walk(root);
+  return files;
+}
+
+export async function deployFiles(config, files, { dryRun = false, deletion = { enabled: false }, excludes = [] } = {}) {
+  const root = String(config.remoteDir || ".").replace(/\\/g, "/");
+  const deletionEnabled = Boolean(deletion?.enabled);
+  if (deletionEnabled) assertSafeDeletionRoot(root);
   return withSftp(config, async (client) => {
-    const root = config.remoteDir || ".";
     if (!isDirectoryStat(await client.stat(root))) throw new Error("Remote destination is not a directory.");
     const results = [];
+    const localPaths = new Set(files.map((file) => file.relative.split(path.sep).join("/")));
+
     for (const file of files) {
-      const remote = path.posix.join(root.replace(/\\/g, "/"), file.relative.split(path.sep).join("/"));
+      const relative = file.relative.split(path.sep).join("/");
+      const remote = path.posix.join(root, relative);
       let remoteStat;
-      try {
-        remoteStat = await client.stat(remote);
-      } catch (error) {
+      try { remoteStat = await client.stat(remote); }
+      catch (error) {
         if (!isMissingRemote(error)) throw new Error("Cannot inspect remote file " + remote + ": " + error.message);
       }
 
-      if (!remoteStat) {
-        await client.mkdir(path.posix.dirname(remote), true);
-        await client.put(file.absolute, remote);
-        results.push({ path: file.relative, action: "uploaded-new" });
-        continue;
-      }
-      if (!isFileStat(remoteStat)) throw new Error("Remote path exists but is not a regular file: " + remote);
-      if (Number(remoteStat.size) !== file.size) {
-        await client.mkdir(path.posix.dirname(remote), true);
-        await client.put(file.absolute, remote);
-        results.push({ path: file.relative, action: "uploaded-size-changed" });
-        continue;
+      let action;
+      if (!remoteStat) action = "new";
+      else {
+        if (!isFileStat(remoteStat)) throw new Error("Remote path exists but is not a regular file: " + remote);
+        if (Number(remoteStat.size) !== file.size) action = "size-changed";
+        else {
+          let digest;
+          try { digest = await remoteHash(client, remote); }
+          catch (error) { throw new Error("Could not verify remote content for " + remote + ": " + error.message); }
+          action = digest === file.sha256 ? "identical" : "content-changed";
+        }
       }
 
-      // Size is only a quick filter. Same-sized files are downloaded to a temporary
-      // file and compared by SHA-256 so changed content is never skipped by size alone.
-      let digest;
-      try {
-        digest = await remoteHash(client, remote);
-      } catch (error) {
-        throw new Error("Could not verify remote content for " + remote + ": " + error.message);
-      }
-      if (digest === file.sha256) {
-        results.push({ path: file.relative, action: "skipped-identical" });
+      if (dryRun) {
+        results.push({ path: relative, action: action === "identical" ? "would-skip-identical" : "would-upload-" + action });
+      } else if (action === "identical") {
+        results.push({ path: relative, action: "skipped-identical" });
       } else {
+        await client.mkdir(path.posix.dirname(remote), true);
         await client.put(file.absolute, remote);
-        results.push({ path: file.relative, action: "uploaded-content-changed" });
+        results.push({ path: relative, action: "uploaded-" + action });
+      }
+    }
+
+    if (deletionEnabled) {
+      const remoteFiles = await listRemoteFiles(client, root);
+      for (const item of remoteFiles) {
+        if (localPaths.has(item.relative) || shouldExclude(item.relative, excludes)) continue;
+        if (dryRun) results.push({ path: item.relative, action: "would-delete-obsolete" });
+        else {
+          await client.delete(item.remotePath);
+          results.push({ path: item.relative, action: "deleted-obsolete" });
+        }
       }
     }
     return results;
