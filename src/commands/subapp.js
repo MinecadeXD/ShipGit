@@ -6,7 +6,10 @@ import { appTitle, success, error, info, muted, warning, section, color } from "
 
 export async function deployApp(name, prompts, dryRun = false) {
   const c = await readConfig(name);
-  if (!dryRun && !(await prompts.confirm("Deploy '" + name + "' to its configured SFTP destination?", false))) {
+  const confirmation = c.deletion?.enabled
+    ? "Remote deletion is ON. Extra files inside '" + c.sftp.remoteDir + "' may be deleted. Continue deploying '" + name + "'?"
+    : "Deploy '" + name + "' to its configured SFTP destination?";
+  if (!dryRun && !(await prompts.confirm(confirmation, false))) {
     console.log(muted("Deployment cancelled."));
     return null;
   }
