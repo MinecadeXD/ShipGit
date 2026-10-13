@@ -39,3 +39,13 @@ export function redactConfig(config) {
   if (copy.sftp) delete copy.sftp.privateKeyText;
   return copy;
 }
+
+export const RESERVED_DEPLOY_ALIASES = new Set([
+  "setup", "config", "deploy", "dry-run", "status", "help", "list",
+  "open", "delete", "remove", "menu", "exit", "quit", "apps"
+]);
+export function validDeployAlias(alias) {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,39}$/.test(alias) &&
+    alias !== "." && alias !== ".." &&
+    !RESERVED_DEPLOY_ALIASES.has(alias.toLowerCase());
+}
