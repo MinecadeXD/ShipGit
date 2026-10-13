@@ -48,7 +48,7 @@ function shouldExclude(relative, excludes = []) {
     return normalized === p || normalized.startsWith((p.endsWith("/") ? p.slice(0, -1) : p) + "/") || base === p;
   });
 }
-function assertSafeDeletionRoot(root) {
+export function assertSafeDeletionRoot(root) {
   const value = String(root || "").replace(/\\/g, "/");
   if (!value.startsWith("/") || value === "/" || value.split("/").includes("..") || path.posix.normalize(value) !== value.replace(/\/$/, "")) {
     throw new Error("Remote deletion requires a dedicated, normalized absolute remote directory (not '/' or '.'). Disable deletion or choose a dedicated directory.");
