@@ -2,7 +2,7 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
 import { listApps, saveConfig, validAppName, appDir } from "./utils.js";
-import { prepareRepository, isGitRepo, run } from "./git.js";
+import { prepareRepository, isGitRepo, run, listRemoteBranches, listLocalBranches } from "./git.js";
 import { generateKey, storePastedKey, storeGitHubToken } from "./security.js";
 import { testConnection } from "./sftp.js";
 import { color, title, success, error, warning, info, muted, step, section } from "./terminal.js";
@@ -32,6 +32,28 @@ const existingReadableFile = async (value) => {
 };
 const hostValid = (value) => /^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/.test(value) && !value.includes("://") || "Enter a hostname or IP address, without sftp://.";
 const remotePathValid = (value) => value.startsWith("/") || value === "." || "Use an absolute remote path (for example /public_html) or .";
+
+
+async function chooseBranch(prompts, { sourceType, repoUrl, localPath, githubTokenPath }) {
+  while (true) {
+    try {
+      const branches = sourceType === "clone"
+        ? await listRemoteBranches(repoUrl, githubTokenPath)
+        : await listLocalBranches(localPath);
+      if (!branches.length) throw new Error("No branches were found.");
+      const choice = await prompts.choose("Select deployment branch", [...branches, "Enter a branch manually", "Refresh branch list"]);
+      if (choice < branches.length) return branches[choice];
+      if (choice === branches.length) {
+        return prompts.ask("Branch name", { defaultValue: "main", required: true, validate: validBranch });
+      }
+    } catch (err) {
+      console.log(warning("Automatic branch discovery failed: " + err.message));
+      const choice = await prompts.choose("How would you like to continue?", ["Enter a branch manually", "Retry branch discovery", "Cancel setup"]);
+      if (choice === 0) return prompts.ask("Branch name", { defaultValue: "main", required: true, validate: validBranch });
+      if (choice === 2) throw new Error("Setup cancelled during branch selection.");
+    }
+  }
+}
 
 export async function setupApp(prompts) {
   let name;
@@ -96,11 +118,8 @@ export async function setupApp(prompts) {
     }
 
     step(3, 5, "Deployment branch");
-    const branch = await prompts.ask("Branch to deploy", {
-      defaultValue: "main",
-      required: true,
-      validate: validBranch
-    });
+    const branch = await chooseBranch(prompts, { sourceType, repoUrl, localPath, githubTokenPath });
+    console.log(success("Selected branch: " + branch));
 
     repoPath = sourceType === "clone" ? path.join(appDir(name), "repository") : localPath;
     if (sourceType === "clone") {
