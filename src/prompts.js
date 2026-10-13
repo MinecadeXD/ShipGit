@@ -1,4 +1,5 @@
 import readline from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 import { stdin, stdout } from "node:process";
 import { color, error, muted, success, info } from "./terminal.js";
 
@@ -47,13 +48,16 @@ export class Prompts {
   }
 
   async chooseWithArrows(label, choices) {
-    readline.emitKeypressEvents(stdin);
+    emitKeypressEvents(stdin);
     this.rl.pause();
     const wasRaw = stdin.isRaw;
     stdin.setRawMode(true);
     stdin.resume();
     let selected = 0;
+    let drawn = false;
     const draw = () => {
+      if (drawn) stdout.write("\x1b[" + (choices.length + 2) + "A\x1b[J");
+      drawn = true;
       stdout.write("\x1b[?25l\x1b[2K\r" + color(label, "bold") + "\n");
       choices.forEach((choice, i) => {
         stdout.write("\x1b[2K\r" + (i === selected ? color(" ❯ " + choice, "cyan") : "   " + choice) + "\n");
