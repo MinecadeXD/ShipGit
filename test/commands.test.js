@@ -6,6 +6,7 @@ import path from "node:path";
 import { collectFiles } from "../src/deploy.js";
 import { hashFile } from "../src/sftp.js";
 import { storeGitHubToken } from "../src/security.js";
+import { validDeployAlias } from "../src/utils.js";
 
 test("collectFiles excludes .git and configured paths and calculates content hashes", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "shipgit-files-"));
@@ -43,4 +44,15 @@ test("GitHub token is stored separately with restrictive permissions", async () 
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test("deploy aliases are safe single arguments and cannot shadow built-in commands", () => {
+  assert.equal(validDeployAlias("website"), true);
+  assert.equal(validDeployAlias("docs-v2"), true);
+  assert.equal(validDeployAlias("my_site.1"), true);
+  assert.equal(validDeployAlias(""), false);
+  assert.equal(validDeployAlias("two words"), false);
+  assert.equal(validDeployAlias("../outside"), false);
+  assert.equal(validDeployAlias("dry-run"), false);
+  assert.equal(validDeployAlias("CONFIG"), false);
 });
