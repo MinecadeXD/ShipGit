@@ -2,12 +2,22 @@ import fs from "node:fs/promises";
 import { Prompts } from "../prompts.js";
 import { appDir, listApps, readConfig } from "../utils.js";
 import { setupApp } from "../setup.js";
-import { subAppPrompt } from "./subapp.js";
-import { deploy } from "../deploy.js";
-import { title, success, error, info, muted, warning } from "../terminal.js";
+import { configureApp } from "../config.js";
+import { subAppPrompt, deployApp } from "./subapp.js";
+import { managerTitle, success, error, info, muted, warning, section } from "../terminal.js";
+
+async function selectApp(prompts, label) {
+  const apps = await listApps();
+  if (!apps.length) {
+    console.log(warning("No apps are configured yet."));
+    return null;
+  }
+  const choice = await prompts.choose(label, [...apps.map((app) => app.name), "Cancel"]);
+  return choice === apps.length ? null : apps[choice].name;
+}
 
 async function afterSetup(name, prompts) {
-  const next = await prompts.choose("What would you like to do next?", [
+  const next = await prompts.choose("Setup saved. What next?", [
     "Deploy now",
     "Open app command prompt",
     "Return to main menu"
@@ -17,73 +27,72 @@ async function afterSetup(name, prompts) {
     await subAppPrompt(name, prompts);
     return "continue";
   }
-  if (!(await prompts.confirm("Deploy " + name + " to the configured SFTP destination?", false))) {
-    console.log(muted("Deployment cancelled; setup remains saved."));
-    return "continue";
-  }
-  try {
-    console.log(info("Starting deployment…"));
-    const result = await deploy(await readConfig(name));
-    console.log(success("Deployment finished · scanned " + result.total + " files."));
-    for (const item of result.results) {
-      const prefix = item.action.startsWith("skipped") ? muted("SKIP") : success("UPLOAD");
-      console.log("  " + prefix + "  " + item.path + muted(" · " + item.action));
-    }
-    console.log(muted("Remote deletion is disabled."));
-  } catch (err) {
-    console.log(error("Deployment failed: " + err.message));
-  }
+  await deployApp(name, prompts, false);
   return "continue";
 }
 
-async function managerCommands(prompts) {
-  console.log(title("\nManage existing apps"));
-  console.log(muted("Commands: setup, open <name>, list, delete <name>, menu, help, exit"));
+async function manageApps(prompts) {
   while (true) {
-    const raw = (await prompts.ask("\nshipgit>")).trim();
-    if (!raw) continue;
-    const [verb, name, ...rest] = raw.split(/\s+/);
-    if (verb === "exit" || verb === "quit") return "exit";
-    if (verb === "menu" && !name) return "menu";
-    if (verb === "help" && !name) {
-      console.log(info("Commands: setup, open <name>, list, delete <name>, menu, help, exit"));
-      continue;
-    }
-    if (verb === "list" && !name) {
-      const apps = await listApps();
-      if (!apps.length) console.log(warning("No sub-apps yet. Run setup to create one."));
-      else apps.forEach(({ name: appName, config }) => console.log("  " + success(appName) + muted(" · branch " + (config.branch || "not set"))));
-      continue;
-    }
-    if (verb === "setup" && !name) {
+    section("Manage Apps");
+    const choice = await prompts.choose("Choose an action", [
+      "Create a new app",
+      "Open an app",
+      "Configure an app",
+      "Delete an app",
+      "List apps",
+      "Back to main menu"
+    ]);
+    if (choice === 5) return "menu";
+    if (choice === 0) {
       try {
-        const created = await setupApp(prompts);
-        if (await afterSetup(created, prompts) === "menu") return "menu";
-      } catch (e) { console.log(error("Setup failed: " + e.message)); }
+        const name = await setupApp(prompts);
+        if (await afterSetup(name, prompts) === "menu") return "menu";
+      } catch (err) { console.log(error("Setup failed: " + err.message)); }
       continue;
     }
-    if (verb === "open" && name && !rest.length) {
-      try { await readConfig(name); await subAppPrompt(name, prompts); }
-      catch (e) { console.log(error("Cannot open sub-app: " + e.message)); }
+    if (choice === 1) {
+      const name = await selectApp(prompts, "Select an app to open");
+      if (name) {
+        try { await readConfig(name); await subAppPrompt(name, prompts); }
+        catch (err) { console.log(error("Cannot open app: " + err.message)); }
+      }
       continue;
     }
-    if ((verb === "remove" || verb === "delete") && name && !rest.length) {
-      if (!(await listApps()).some((app) => app.name === name)) { console.log(error("Sub-app not found.")); continue; }
-      console.log(warning("This removes ShipGit settings and any ShipGit-managed clone/token. External local repositories and remote hosting files are untouched."));
-      if (await prompts.confirm("Delete sub-app " + name + "?")) {
+    if (choice === 2) {
+      const name = await selectApp(prompts, "Select an app to configure");
+      if (name) {
+        try { await configureApp(name, prompts); }
+        catch (err) { console.log(error("Config error: " + err.message)); }
+      }
+      continue;
+    }
+    if (choice === 3) {
+      const name = await selectApp(prompts, "Select an app to delete");
+      if (!name) continue;
+      console.log(warning("Only ShipGit settings and ShipGit-managed files for this app are removed. External local repositories and remote hosting files are untouched."));
+      if (await prompts.confirm("Permanently delete app '" + name + "'?", false)) {
         await fs.rm(appDir(name), { recursive: true, force: true });
-        console.log(success("Sub-app deleted. Remote hosting files were not changed."));
+        console.log(success("App '" + name + "' deleted. Remote hosting files were not changed."));
       } else console.log(muted("Deletion cancelled."));
       continue;
     }
-    console.log(error("Unknown manager command. Type help."));
+    if (choice === 4) {
+      const apps = await listApps();
+      if (!apps.length) console.log(warning("No apps are configured yet."));
+      else {
+        section("Configured Apps");
+        for (const { name, config } of apps) {
+          console.log("  " + success(name) + muted(" · branch " + (config.branch || "not set")) + muted(" · alias " + (config.deployAlias ? "sg " + config.deployAlias : "not set")));
+        }
+      }
+    }
   }
 }
 
 export async function managerPrompt() {
   const prompts = new Prompts();
-  console.log(title("\nShipGit"));
-  console.log(muted("Git-to-SFTP deployment manager"));
+  console.log(managerTitle("\nShipGit Manager"));
+  console.log(info("Git-to-SFTP deployment manager"));
   try {
     while (true) {
       const choice = await prompts.choose("What would you like to do?", [
@@ -93,14 +102,13 @@ export async function managerPrompt() {
       ]);
       if (choice === 2) break;
       if (choice === 1) {
-        const result = await managerCommands(prompts);
-        if (result === "exit") break;
+        await manageApps(prompts);
         continue;
       }
       try {
         const name = await setupApp(prompts);
         if (await afterSetup(name, prompts) === "menu") continue;
-      } catch (e) { console.log(error("Setup failed: " + e.message)); }
+      } catch (err) { console.log(error("Setup failed: " + err.message)); }
     }
   } finally { prompts.close(); }
 }
