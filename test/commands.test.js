@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { collectFiles } from "../src/deploy.js";
 import { hashFile } from "../src/sftp.js";
+import { storeGitHubToken } from "../src/security.js";
 
 test("collectFiles excludes .git and configured paths and calculates content hashes", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "shipgit-files-"));
@@ -28,4 +29,18 @@ test("SHA-256 detects content changes even when file sizes are identical", async
   const second = await hashFile(file);
   assert.equal((await fs.stat(file)).size, 5);
   assert.notEqual(first, second);
+});
+
+test("GitHub token is stored separately with restrictive permissions", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "shipgit-token-"));
+  const tokenPath = path.join(root, "github-token");
+  try {
+    await storeGitHubToken("ghp-test-token", tokenPath);
+    assert.equal(await fs.readFile(tokenPath, "utf8"), "ghp-test-token\n");
+    const mode = (await fs.stat(tokenPath)).mode & 0o777;
+    if (process.platform !== "win32") assert.equal(mode, 0o600);
+    await assert.rejects(() => storeGitHubToken("another-token", tokenPath));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
