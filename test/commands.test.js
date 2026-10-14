@@ -57,9 +57,10 @@ test("deploy aliases are safe single arguments and cannot shadow built-in comman
   assert.equal(validDeployAlias("CONFIG"), false);
 });
 
-test("remote deletion rejects unsafe destination roots", () => {
+test("remote deletion permits explicit root and current-directory targets but blocks parent traversal", () => {
   assert.equal(assertSafeDeletionRoot("/public_html"), undefined);
-  assert.throws(() => assertSafeDeletionRoot("/"));
-  assert.throws(() => assertSafeDeletionRoot("."));
+  assert.equal(assertSafeDeletionRoot("/"), undefined);
+  assert.equal(assertSafeDeletionRoot("."), undefined);
   assert.throws(() => assertSafeDeletionRoot("/public_html/../other"));
+  assert.throws(() => assertSafeDeletionRoot("relative/path"));
 });
