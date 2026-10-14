@@ -35,6 +35,7 @@ test("remote deletion permits explicit root and current-directory targets but bl
   assert.doesNotThrow(() => assertSafeDeletionRoot("/public_html/site"));
   assert.throws(() => assertSafeDeletionRoot("../"));
   assert.throws(() => assertSafeDeletionRoot("/public_html/../other"));
+  assert.throws(() => assertSafeDeletionRoot("/public_html\\\\..\\\\other"));
   assert.throws(() => assertSafeDeletionRoot("relative/path"));
   assert.throws(() => assertSafeDeletionRoot("/public_html//site"));
 });
