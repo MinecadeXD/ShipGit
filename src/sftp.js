@@ -29,7 +29,7 @@ export async function listRemoteDirectory(config) {
     if (!isDirectoryStat(stat)) throw new Error("Remote destination exists but is not a directory.");
     const entries = await client.list(remote);
     return entries
-      .filter((entry) => entry.name && entry.name !== "." && entry.name !== ".." && !entry.name.includes("/") && !entry.name.includes("\\\\"))
+      .filter((entry) => entry.name && entry.name !== "." && entry.name !== ".." && !entry.name.includes("/") && !entry.name.includes("\\"))
       .map((entry) => ({
         name: entry.name,
         type: entry.type,
@@ -67,7 +67,7 @@ function shouldExclude(relative, excludes = []) {
   });
 }
 export function assertSafeDeletionRoot(root) {
-  const value = String(root || "").replace(/\\\\/g, "/");
+  const value = String(root || "").replace(/\\/g, "/");
   if (value === "." || value === "/") return;
   if (!value.startsWith("/") || value.split("/").includes("..") || path.posix.normalize(value) !== value.replace(/\/$/, "")) {
     throw new Error("Remote deletion requires '.', '/', or a normalized absolute remote directory without '..' segments.");
