@@ -3,7 +3,7 @@ import path from "node:path";
 import { readConfig, saveConfig, appDir, validDeployAlias, listApps } from "./utils.js";
 import { testConnection, listRemoteDirectory } from "./sftp.js";
 import { listRemoteBranches, listLocalBranches, run } from "./git.js";
-import { success, error, info, muted, warning, section } from "./terminal.js";
+import { color, success, error, info, muted, warning, section } from "./terminal.js";
 
 const expand = (value) => path.resolve(String(value).replace(/^~(?=$|\/)/, process.env.HOME || ""));
 const validRemotePath = (value) => {
@@ -112,7 +112,7 @@ export async function configureApp(name, prompts) {
         try {
           await testConnection(candidate);
           const entries = await listRemoteDirectory(candidate);
-          console.log(section("Remote path preview · " + candidate.remoteDir));
+          section("Remote path preview · " + candidate.remoteDir);
           if (!entries.length) console.log(muted("(Directory is empty.)"));
           else {
             for (const entry of entries) {
