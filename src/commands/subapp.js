@@ -6,6 +6,15 @@ import { appTitle, success, error, info, muted, warning, section, color } from "
 
 export async function deployApp(name, prompts, dryRun = false) {
   const c = await readConfig(name);
+  const remoteRoot = String(c.sftp.remoteDir || ".").replace(/\\/g, "/");
+  const riskyDeletionRoot = Boolean(c.deletion?.enabled) && (remoteRoot === "/" || remoteRoot === ".");
+  if (riskyDeletionRoot) {
+    console.log(warning("DANGER: remote deletion is enabled for '" + remoteRoot + "'. This may delete files unrelated to this app."));
+    if (!dryRun && !(await prompts.confirm("Confirm destructive remote deletion at '" + remoteRoot + "'?", false))) {
+      console.log(muted("Deployment cancelled; no remote files changed."));
+      return null;
+    }
+  }
   const confirmation = c.deletion?.enabled
     ? "Remote deletion is ON. Extra files inside '" + c.sftp.remoteDir + "' may be deleted. Continue deploying '" + name + "'?"
     : "Deploy '" + name + "' to its configured SFTP destination?";
