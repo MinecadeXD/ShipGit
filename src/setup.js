@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import { listApps, saveConfig, validAppName, appDir } from "./utils.js";
 import { prepareRepository, isGitRepo, run, listRemoteBranches, listLocalBranches } from "./git.js";
 import { generateKey, storePastedKey, storeGitHubToken } from "./security.js";
-import { testConnection } from "./sftp.js";
+import { testConnection, listRemoteDirectory } from "./sftp.js";
 import { color, title, success, error, warning, info, muted, step, section } from "./terminal.js";
 
 const expand = (value) => path.resolve(value.replace(/^~(?=$|\/)/, os.homedir()));
@@ -31,7 +31,44 @@ const existingReadableFile = async (value) => {
   } catch { return "File not found or not readable. Check the path and try again."; }
 };
 const hostValid = (value) => /^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/.test(value) && !value.includes("://") || "Enter a hostname or IP address, without sftp://.";
-const remotePathValid = (value) => value.startsWith("/") || value === "." || "Use an absolute remote path (for example /public_html) or .";
+const remotePathValid = (value) => {
+  const normalized = String(value).replace(/\\/g, "/");
+  if (normalized === "." || normalized === "/") return true;
+  return normalized.startsWith("/") && !normalized.split("/").includes("..") &&
+    path.posix.normalize(normalized) === normalized.replace(/\/$/, "") ||
+    "Use '.', '/', or a normalized absolute path without '..' segments.";
+};
+
+async function chooseRemoteDirectory(sftp, prompts, defaultValue = ".") {
+  let remoteDir = defaultValue || ".";
+  while (true) {
+    remoteDir = await prompts.ask("Remote destination directory", {
+      defaultValue: remoteDir,
+      required: true,
+      validate: remotePathValid
+    });
+    remoteDir = remoteDir.replace(/\\/g, "/");
+    const candidate = { ...sftp, remoteDir };
+    try {
+      await testConnection(candidate);
+      const entries = await listRemoteDirectory(candidate);
+      console.log(section("Remote path preview · " + remoteDir));
+      if (!entries.length) console.log(muted("(Directory is empty.)"));
+      else {
+        for (const entry of entries) {
+          const label = entry.type === "d" ? "DIR " : entry.type === "l" ? "LINK" : "FILE";
+          console.log("  " + color(label.padEnd(5), entry.type === "d" ? "cyan" : entry.type === "l" ? "orange" : "white") + entry.name);
+        }
+      }
+      const choice = await prompts.choose("Use this remote destination?", ["Confirm path", "Edit path"]);
+      if (choice === 0) return remoteDir;
+    } catch (err) {
+      console.log(error("Could not preview remote path: " + err.message));
+      const choice = await prompts.choose("Remote path preview failed", ["Edit path", "Retry preview", "Cancel path selection"]);
+      if (choice === 2) return null;
+    }
+  }
+}
 
 
 async function chooseBranch(prompts, { sourceType, repoUrl, localPath, githubTokenPath }) {
@@ -199,20 +236,15 @@ export async function setupApp(prompts) {
         validate: (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 65535 || "Port must be a number from 1 to 65535."
       }));
       const username = await prompts.ask("SFTP username", { required: true });
-      const remoteDir = await prompts.ask("Remote destination directory", {
-        required: true,
-        validate: remotePathValid
-      });
-      sftp = { host, port, username, remoteDir, privateKeyPath };
-      console.log(info("Testing SSH authentication and remote-directory access (read-only)…"));
-      try {
-        await testConnection(sftp);
-        console.log(success("SFTP authentication and destination access verified. No remote files were changed."));
-        break;
-      } catch (err) {
-        console.log(error("SFTP connection check failed: " + err.message));
+      const base = { host, port, username, privateKeyPath };
+      const remoteDir = await chooseRemoteDirectory(base, prompts, ".");
+      if (remoteDir === null) {
         if (!(await prompts.confirm("Re-enter the SFTP connection details?", true))) throw new Error("Setup cancelled before saving. No remote files were changed.");
+        continue;
       }
+      sftp = { ...base, remoteDir };
+      console.log(success("SFTP authentication and destination access verified. No remote files were changed."));
+      break;
     }
 
     const excludeInput = await prompts.ask("Exclude paths (comma-separated, blank for none)", {
@@ -307,18 +339,15 @@ export async function setupApp(prompts) {
           validate: (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 65535 || "Port must be a number from 1 to 65535."
         }));
         const username = await prompts.ask("SFTP username", { defaultValue: sftp.username, required: true });
-        const remoteDir = await prompts.ask("Remote destination directory", { defaultValue: sftp.remoteDir, required: true, validate: remotePathValid });
-        const candidate = { host, port, username, remoteDir, privateKeyPath };
-        console.log(info("Testing updated SFTP settings (read-only)…"));
-        try {
-          await testConnection(candidate);
-          sftp = candidate;
-          console.log(success("Updated SFTP connection verified."));
-          break;
-        } catch (err) {
-          console.log(error("SFTP connection check failed: " + err.message));
+        const base = { host, port, username, privateKeyPath };
+        const remoteDir = await chooseRemoteDirectory(base, prompts, sftp.remoteDir);
+        if (remoteDir === null) {
           if (!(await prompts.confirm("Retry the SFTP settings?", true))) break;
+          continue;
         }
+        sftp = { ...base, remoteDir };
+        console.log(success("Updated SFTP connection verified."));
+        break;
       }
     }
   } catch (err) {
