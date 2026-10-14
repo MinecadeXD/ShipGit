@@ -52,7 +52,7 @@ async function chooseRemoteDirectory(sftp, prompts, defaultValue = ".") {
     try {
       await testConnection(candidate);
       const entries = await listRemoteDirectory(candidate);
-      console.log(section("Remote path preview · " + remoteDir));
+      section("Remote path preview · " + remoteDir);
       if (!entries.length) console.log(muted("(Directory is empty.)"));
       else {
         for (const entry of entries) {
