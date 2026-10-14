@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { readConfig, saveConfig, appDir, validDeployAlias, listApps } from "./utils.js";
-import { testConnection } from "./sftp.js";
+import { testConnection, listRemoteDirectory } from "./sftp.js";
 import { listRemoteBranches, listLocalBranches, run } from "./git.js";
 import { success, error, info, muted, warning, section } from "./terminal.js";
 
@@ -96,7 +96,39 @@ export async function configureApp(name, prompts) {
       candidate.host = await prompts.ask("SFTP host", { defaultValue: candidate.host, required: true, validate: (v) => /^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/.test(v) || "Enter a hostname or IP address." });
       candidate.port = Number(await prompts.ask("SFTP port", { defaultValue: String(candidate.port || 22), required: true, validate: validPort }));
       candidate.username = await prompts.ask("SFTP username", { defaultValue: candidate.username, required: true });
-      candidate.remoteDir = await prompts.ask("Remote destination", { defaultValue: candidate.remoteDir, required: true, validate: (v) => (validRemotePath(v) && (!config.deletion?.enabled || (v.startsWith("/") && v !== "/" && !v.split("/").includes("..")))) || "Use a dedicated absolute remote path when remote deletion is enabled." });
+      let cancelled = false;
+      while (true) {
+        candidate.remoteDir = await prompts.ask("Remote destination", {
+          defaultValue: candidate.remoteDir || ".",
+          required: true,
+          validate: (v) => validRemotePath(v) || "Use '.', or an absolute path without '..' segments."
+        });
+        try {
+          await testConnection(candidate);
+          const entries = await listRemoteDirectory(candidate);
+          console.log(section("Remote path preview · " + candidate.remoteDir));
+          if (!entries.length) console.log(muted("(Directory is empty.)"));
+          else {
+            for (const entry of entries) {
+              const label = entry.type === "d" ? "DIR " : entry.type === "l" ? "LINK" : "FILE";
+              console.log("  " + color(label.padEnd(5), entry.type === "d" ? "cyan" : entry.type === "l" ? "orange" : "white") + entry.name);
+            }
+          }
+          const choice = await prompts.choose("Use this remote destination?", ["Confirm path", "Edit path"]);
+          if (choice === 0) break;
+        } catch (err) {
+          console.log(error("Could not preview remote path: " + err.message));
+          const choice = await prompts.choose("Remote path preview failed", ["Edit path", "Retry preview", "Cancel SFTP changes"]);
+          if (choice === 0) continue;
+          if (choice === 1) continue;
+          cancelled = true;
+          break;
+        }
+      }
+      if (cancelled) {
+        console.log(muted("SFTP changes discarded."));
+        continue;
+      }
       try {
         await testConnection(candidate);
         if (!(await prompts.confirm("Connection verified. Save these SFTP settings?", true))) {
@@ -137,12 +169,19 @@ export async function configureApp(name, prompts) {
     } else if (action.startsWith("Remote deletion:")) {
       const currentlyEnabled = Boolean(config.deletion?.enabled);
       if (!currentlyEnabled) {
-        const remote = String(config.sftp.remoteDir || "").replace(/\\/g, "/");
-        if (!remote.startsWith("/") || remote === "/" || remote.split("/").includes("..")) {
-          console.log(error("Remote deletion is blocked for '/' (the account root) and '.' (an ambiguous relative path). Choose a dedicated absolute directory, e.g. /public_html/my-site, and verify it contains only this app's files."));
+        const remote = String(config.sftp.remoteDir || ".").replace(/\\/g, "/");
+        if (!validRemotePath(remote)) {
+          console.log(error("Choose '.', or an absolute remote path without '..' segments before enabling remote deletion."));
           continue;
         }
         console.log(warning("When enabled, files inside the configured remote directory that are not present locally may be deleted."));
+        if (remote === "/" || remote === ".") {
+          console.log(warning("DANGER: this destination is broad. Remote deletion may remove files unrelated to this app."));
+          if (!(await prompts.confirm("I understand the risk of enabling deletion at '" + remote + "'. Continue?", false))) {
+            console.log(muted("Remote deletion remains OFF."));
+            continue;
+          }
+        }
         if (!(await prompts.confirm("Enable remote deletion for this app?", false))) {
           console.log(muted("Remote deletion remains OFF."));
           continue;
