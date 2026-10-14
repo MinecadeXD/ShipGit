@@ -108,6 +108,7 @@ export async function configureApp(name, prompts) {
           required: true,
           validate: (v) => validRemotePath(v) || "Use '.', or an absolute path without '..' segments."
         });
+        candidate.remoteDir = candidate.remoteDir.replace(/\\/g, "/");
         try {
           await testConnection(candidate);
           const entries = await listRemoteDirectory(candidate);
