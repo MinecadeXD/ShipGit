@@ -22,6 +22,24 @@ export async function testConnection(config) {
   });
 }
 
+export async function listRemoteDirectory(config) {
+  return withSftp(config, async (client) => {
+    const remote = config.remoteDir || ".";
+    const stat = await client.stat(remote);
+    if (!isDirectoryStat(stat)) throw new Error("Remote destination exists but is not a directory.");
+    const entries = await client.list(remote);
+    return entries
+      .filter((entry) => entry.name && entry.name !== "." && entry.name !== ".." && !entry.name.includes("/") && !entry.name.includes("\\\\"))
+      .map((entry) => ({
+        name: entry.name,
+        type: entry.type,
+        size: Number(entry.size || 0),
+        modifyTime: Number(entry.modifyTime || 0)
+      }))
+      .sort((a, b) => (a.type === "d" ? 0 : 1) - (b.type === "d" ? 0 : 1) || a.name.localeCompare(b.name));
+  });
+}
+
 export async function hashFile(filePath) {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(filePath)) hash.update(chunk);
@@ -49,9 +67,10 @@ function shouldExclude(relative, excludes = []) {
   });
 }
 export function assertSafeDeletionRoot(root) {
-  const value = String(root || "").replace(/\\/g, "/");
-  if (!value.startsWith("/") || value === "/" || value.split("/").includes("..") || path.posix.normalize(value) !== value.replace(/\/$/, "")) {
-    throw new Error("Remote deletion requires a dedicated, normalized absolute remote directory (not '/' or '.'). Disable deletion or choose a dedicated directory.");
+  const value = String(root || "").replace(/\\\\/g, "/");
+  if (value === "." || value === "/") return;
+  if (!value.startsWith("/") || value.split("/").includes("..") || path.posix.normalize(value) !== value.replace(/\/$/, "")) {
+    throw new Error("Remote deletion requires '.', '/', or a normalized absolute remote directory without '..' segments.");
   }
 }
 
