@@ -32,7 +32,7 @@ test("remote deletion permits explicit root and current-directory targets but bl
   const { assertSafeDeletionRoot } = await import("../src/sftp.js");
   assert.doesNotThrow(() => assertSafeDeletionRoot("/"));
   assert.doesNotThrow(() => assertSafeDeletionRoot("."));
-  assert.doesNotThrow(() => assertSafeDeletionRoot("/public_html/site"));
+  assert.throws(() => assertSafeDeletionRoot("/public_html\\..\\other"));
   assert.throws(() => assertSafeDeletionRoot("../"));
   assert.throws(() => assertSafeDeletionRoot("/public_html/../other"));
   assert.throws(() => assertSafeDeletionRoot("/public_html\\\\..\\\\other"));
