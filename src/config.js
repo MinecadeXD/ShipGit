@@ -6,7 +6,12 @@ import { listRemoteBranches, listLocalBranches, run } from "./git.js";
 import { success, error, info, muted, warning, section } from "./terminal.js";
 
 const expand = (value) => path.resolve(String(value).replace(/^~(?=$|\/)/, process.env.HOME || ""));
-const validRemotePath = (value) => value === "." || (value.startsWith("/") && !value.split("/").includes(".."));
+const validRemotePath = (value) => {
+  const normalized = String(value).replace(/\\/g, "/");
+  if (normalized === "." || normalized === "/") return true;
+  return normalized.startsWith("/") && !normalized.split("/").includes("..") &&
+    path.posix.normalize(normalized) === normalized.replace(/\/$/, "");
+};
 const validPort = (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 65535 || "Port must be a number from 1 to 65535.";
 const validBranch = async (value) => { try { await run("git", ["check-ref-format", "--branch", value]); return true; } catch { return "Enter a valid Git branch name."; } };
 
