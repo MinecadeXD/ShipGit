@@ -26,3 +26,15 @@ test("pasted private key is protected and not overwritten", async () => {
   assert.equal((await fs.stat(target)).mode & 0o077, 0);
   await assert.rejects(() => storePastedKey("-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----", target), /already exists/);
 });
+
+
+test("remote deletion permits explicit root and current-directory targets but blocks parent traversal", async () => {
+  const { assertSafeDeletionRoot } = await import("../src/sftp.js");
+  assert.doesNotThrow(() => assertSafeDeletionRoot("/"));
+  assert.doesNotThrow(() => assertSafeDeletionRoot("."));
+  assert.doesNotThrow(() => assertSafeDeletionRoot("/public_html/site"));
+  assert.throws(() => assertSafeDeletionRoot("../"));
+  assert.throws(() => assertSafeDeletionRoot("/public_html/../other"));
+  assert.throws(() => assertSafeDeletionRoot("relative/path"));
+  assert.throws(() => assertSafeDeletionRoot("/public_html//site"));
+});
